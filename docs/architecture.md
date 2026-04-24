@@ -59,6 +59,8 @@ Commands replicated from the CLI (minus `graph`/DOT export which was added specu
 | `validate` | `task({action: "validate"})` | Schema + graph validation |
 | `init` | `task({action: "init", args: {id, name}})` | Scaffold a new task file |
 
+`init` is the **only write action**. All other actions are read-only. This matters for the security model: a read-only task tool is safe to expose to any agent; `init` requires write scope.
+
 ## What We Replicate from taskgraph (Rust)
 
 ### DependencyGraph — all algorithms
@@ -66,7 +68,7 @@ Commands replicated from the CLI (minus `graph`/DOT export which was added specu
 | Operation | Source (Rust) | Implementation (TS) |
 |-----------|---------------|---------------------|
 | `hasCycles` | petgraph `is_cyclic_directed` | `graphology-dag` `hasCycle` |
-| `findCycles` | DFS with recursion stack | Custom: DFS extracting cycle paths |
+| `findCycles` | DFS with recursion stack | Custom: DFS with 3-color marking + back-edge path extraction (see §findCycles) |
 | `topologicalOrder` | petgraph `toposort` | `graphology-dag` `topologicalSort` |
 | `dependencies(id)` | Incoming edges | graphology `inNeighbors` |
 | `dependents(id)` | Outgoing edges | graphology `outNeighbors` |
@@ -116,7 +118,7 @@ Commands replicated from the CLI (minus `graph`/DOT export which was added specu
 - `calculateTaskEv` — expected value with retry logic (exact formula from Rust CLI)
 - `riskPath` — `weightedCriticalPath(weight = riskWeight * impactWeight)`
 - `shouldDecompose` — risk >= high OR scope >= broad
-- `workflowCost` — per-task EV aggregation, skip completed unless flagged
+- `workflowCost` — DAG-propagation EV aggregation (see §Workflow-Cost DAG Propagation). Skips completed tasks unless flagged.
 - `riskDistribution` — bucket tasks by risk category, show counts/percentages
 
 ### Error types
@@ -138,6 +140,7 @@ class InvalidInputError extends TaskgraphError { field: string; message: string 
 - `clap` command definitions — CLI dispatch, replaced by plugin tool dispatch or direct API calls
 - `toDot()` / DOT export — added speculatively, not used, dropped
 - Rust's all-pairs path-counting bottleneck — replaced by graphology betweenness (Brandes, O(VE) vs O(N²×paths))
+- Zod interop — typebox is the sole schema system. No Zod bridge planned. Consumers with Zod in their stack can convert at their boundary.
 
 ## Schema & Types (@alkdev/typebox)
 
@@ -178,10 +181,13 @@ Categorical enums are defined with `Type.Union(Type.Literal(...))` — string va
 
 ```typescript
 const DependencyEdge = Type.Object({
-  from: Type.String(),  // prerequisite task id
-  to: Type.String(),    // dependent task id
+  from: Type.String(),              // prerequisite task id
+  to: Type.String(),                // dependent task id
+  qualityDegradation: Type.Optional(Type.Number()),  // 0.0–1.0, default 0.9
 })
 ```
+
+The `qualityDegradation` field models how much upstream failure bleeds through to the dependent task. Value of 0.0 means no propagation (independent model), 1.0 means full propagation. Default is 0.9 following the Python research model. Only used by `workflowCost` in DAG-propagation mode; ignored by all other algorithms.
 
 ### TaskGraphNodeAttributes schema
 
@@ -202,10 +208,12 @@ const TaskGraphNodeAttributes = Type.Object({
 ### TaskGraphEdgeAttributes schema
 
 ```typescript
-const TaskGraphEdgeAttributes = Type.Object({})
+const TaskGraphEdgeAttributes = Type.Object({
+  qualityDegradation: Type.Optional(Type.Number()),
+})
 ```
 
-Edges carry no attributes currently — they are pure dependency edges (prerequisite → dependent).
+Edges carry `qualityDegradation` for the DAG-propagation cost model. If absent, the default (0.9) is used by `workflowCost`. Other algorithms ignore edge attributes.
 
 ### SerializedGraph schema
 
@@ -242,7 +250,7 @@ The graph must be constructable from multiple sources.
 // 1. From TaskInput array (frontmatter/JSON — most common)
 const graph = TaskGraph.fromTasks(tasks: TaskInput[]): TaskGraph
 
-// 2. From DB query results (alkhub use case)
+// 2. From DB query results (alkhub use case — explicit edges with optional qualityDegradation)
 const graph = TaskGraph.fromRecords(tasks: TaskInput[], edges: DependencyEdge[]): TaskGraph
 
 // 3. From graphology native JSON (export/import round-trip)
@@ -256,6 +264,8 @@ graph.addDependency("a", "b")  // a is prerequisite of b
 ```
 
 For paths 1 and 2, the preferred internal approach is to build a `SerializedGraph` JSON blob (nodes array + edges array) and call `graph.import()`. This is faster than N individual `addNode`/`addEdge` calls and avoids the verbose builder API. See graphology performance tips at `/workspace/graphology/docs/performance-tips.md`.
+
+**Note on qualityDegradation:** `fromTasks` constructs edges from `dependsOn` arrays in frontmatter, which cannot express per-edge `qualityDegradation`. Those edges get the default (0.9). `fromRecords` and `fromJSON` support per-edge values. Edges can be augmented after construction via `updateEdgeAttributes` if needed.
 
 ### Categorical field defaults
 
@@ -276,6 +286,10 @@ The raw nullable data is preserved on the graph. `resolveDefaults` is called int
 
 Unlike the original napi design where `DependencyGraph` only stored IDs, node attributes carry the categorical metadata directly. This eliminates the need to pass `TaskInput[]` alongside the graph — `weightedCriticalPath` and `riskPath` read attributes from the graph nodes. The graph acts as an in-memory index/metadata store; task body content stays external.
 
+### Graph reactivity
+
+graphology's `Graph` class extends Node.js `EventEmitter` and emits fine-grained mutation events: `nodeAdded`, `edgeAdded`, `nodeDropped`, `edgeDropped`, `nodeAttributesUpdated`, `edgeAttributesUpdated`, `cleared`, `edgesCleared`. `TaskGraph` does **not** wrap or re-emit these. Consumers that need reactivity (e.g., the OpenCode plugin for file-watch → coordinator notification) access the underlying graphology instance via `graph.raw` and attach listeners directly. This keeps `TaskGraph` as a pure computation library with no opinion about reactivity.
+
 ## API Surface
 
 ### TaskGraph class
@@ -289,10 +303,16 @@ class TaskGraph {
   addTask(id: string, attributes: TaskGraphNodeAttributes): void
   addDependency(prerequisite: string, dependent: string): void
 
+  // Mutation
+  removeTask(id: string): void
+  removeDependency(prerequisite: string, dependent: string): void
+  updateTask(id: string, attributes: Partial<TaskGraphNodeAttributes>): void
+  updateEdgeAttributes(prerequisite: string, dependent: string, attrs: Partial<TaskGraphEdgeAttributes>): void
+
   // Queries
   hasCycles(): boolean
   findCycles(): string[][]
-  topologicalOrder(): string[] | null
+  topologicalOrder(): string[]  // throws CircularDependencyError if cyclic
   dependencies(taskId: string): string[]
   dependents(taskId: string): string[]
   taskCount(): number
@@ -307,8 +327,11 @@ class TaskGraph {
   // Cost-benefit (methods that use categorical data on nodes)
   riskPath(): RiskPathResult
   shouldDecompose(taskId: string): DecomposeResult
-  workflowCost(options?: { includeCompleted?: boolean; limit?: number }): WorkflowCostResult
+  workflowCost(options?: WorkflowCostOptions): WorkflowCostResult
   riskDistribution(): RiskDistributionResult
+
+  // Subgraph
+  subgraph(filter: (taskId: string, attrs: TaskGraphNodeAttributes) => boolean): TaskGraph
 
   // Validation
   validateSchema(): ValidationError[]
@@ -318,6 +341,9 @@ class TaskGraph {
   // Export
   export(): TaskGraphSerialized
   toJSON(): TaskGraphSerialized
+
+  // Reactivity
+  get raw(): Graph  // underlying graphology instance for direct event listener attachment
 }
 ```
 
@@ -335,7 +361,7 @@ function impactWeight(impact: TaskImpact): number          // 1.0–3.0
 function resolveDefaults(attrs: Partial<TaskGraphNodeAttributes>): ResolvedTaskAttributes
 
 // Cost-benefit
-function calculateTaskEv(p: number, scopeCost: number, impactWeight: number): number
+function calculateTaskEv(p: number, scopeCost: number, impactWeight: number, config?: EvConfig): EvResult
 function shouldDecomposeTask(attrs: TaskGraphNodeAttributes): DecomposeResult
 ```
 
@@ -352,17 +378,40 @@ interface DecomposeResult {
   reasons: string[]  // e.g. ["risk: high", "scope: broad"]
 }
 
+interface WorkflowCostOptions {
+  includeCompleted?: boolean
+  limit?: number
+  propagationMode?: 'independent' | 'dag-propagate'  // default: 'dag-propagate'
+  defaultQualityDegradation?: number                  // default: 0.9, used when edge has no explicit value
+}
+
 interface WorkflowCostResult {
   tasks: Array<{
     taskId: string
     name: string
     ev: number
+    pIntrinsic: number
+    pEffective: number
     probability: number
     scopeCost: number
     impactWeight: number
   }>
   totalEv: number
   averageEv: number
+  propagationMode: 'independent' | 'dag-propagate'
+}
+
+interface EvConfig {
+  retries?: number          // default: 2
+  fallbackCost?: number     // default: 20.0
+  timeLost?: number         // default: 0.5
+  valueRate?: number        // default: 100.0
+}
+
+interface EvResult {
+  ev: number
+  pSuccess: number
+  expectedRetries: number
 }
 
 interface RiskDistributionResult {
@@ -374,6 +423,75 @@ interface RiskDistributionResult {
   unspecified: string[]
 }
 ```
+
+## findCycles Implementation
+
+graphology does not provide a cycle extraction function — only `hasCycle` (boolean) and `stronglyConnectedComponents` (node groups, not paths). We implement a custom DFS cycle path extractor in `src/graph/queries.ts`.
+
+**Algorithm:** Extend the 3-color DFS (WHITE/GREY/BLACK) used by `graphology-dag`'s `hasCycle`. When a back edge is found (GREY → GREY), trace back through the recursion stack to extract the cycle path as an ordered node sequence. This returns the actual cycle paths needed for error reporting in `validate()`.
+
+**Optimization:** Use `stronglyConnectedComponents()` from `graphology-components` as a fast pre-check. If there are zero multi-node SCCs (and no self-loops), skip the DFS entirely — the graph is acyclic.
+
+**Relationship to `topologicalOrder`:** `topologicalOrder()` throws `CircularDependencyError` (with `cycles` populated) when the graph is cyclic, rather than returning `null`. This prevents silent ignoring of cycles and gives consumers the cycle information needed for error reporting.
+
+## Workflow-Cost DAG Propagation
+
+The Rust CLI computes EV per-task independently — no upstream quality degradation. As the framework doc in the Rust source notes, this is a simplified model (the "Kuhn poker analogy") — it captures a structural property of the problem but ignores how upstream failure degrades downstream work. The Python research notebook (`/workspace/@alkimiadev/taskgraph/docs/research/cost_benefit_analysis_framework.py`) implements a DAG-propagation model that addresses this.
+
+### Why DAG propagation matters
+
+The independent model is dangerously optimistic for non-trivial workflows. In a dependency chain where planning has p=0.65 (poor), the Python model shows a **213% cost increase** vs good planning (p=0.92). The independent model barely shows a difference because it ignores cascading failure. This structural property is independent of the "type" of developer — human, LLM, or otherwise.
+
+### Implementation
+
+We implement DAG propagation as the default mode, with the independent model as a degenerate case:
+
+```typescript
+function calculateWorkflowCost(graph, options): WorkflowCostResult {
+  const topoOrder = graph.topologicalOrder()
+  const upstreamSuccessProbs = new Map<string, number>()
+  let totalEv = 0
+
+  for (const nodeId of topoOrder) {
+    const pEff = options.propagationMode === 'dag-propagate'
+      ? computeEffectiveP(nodeId, upstreamSuccessProbs, graph, options)
+      : getIntrinsicP(nodeId)
+
+    const { ev, pSuccess } = calculateTaskEv(pEff, scopeCost, impactWeight, config)
+    upstreamSuccessProbs.set(nodeId, pSuccess)
+    totalEv += ev * impactWeight
+  }
+}
+
+function computeEffectiveP(nodeId, upstreamSuccessProbs, graph, options): number {
+  const parents = graph.dependencies(nodeId)  // inNeighbors
+  if (parents.length === 0) return getIntrinsicP(nodeId)
+
+  let inheritedQuality = 1.0
+  for (const parent of parents) {
+    const parentP = upstreamSuccessProbs.get(parent)
+    const degradation = getEdgeDegradation(parent, nodeId) ?? options.defaultQualityDegradation
+    inheritedQuality *= (parentP + (1 - parentP) * (1 - degradation))
+  }
+  return getIntrinsicP(nodeId) * inheritedQuality
+}
+```
+
+**Key design choices:**
+- **Default mode:** `dag-propagate` — the independent model is the degenerate case (set `defaultQualityDegradation: 0`)
+- **Edge-level `qualityDegradation`** — carried on `TaskGraphEdgeAttributes`, defaults to 0.9. Expressible via `fromRecords` and `fromJSON`; frontmatter `dependsOn` gets the default.
+- **Per-task output includes both `pIntrinsic` and `pEffective`** so consumers can see the degradation effect
+- **Depth-escalation** (increasing risk at deeper chain levels) is a future v2 consideration pending empirical calibration data from actual task outcomes
+
+### Comparison with Rust CLI
+
+| Dimension | Rust CLI (Simple Sum) | TS (DAG Propagation) |
+|-----------|----------------------|---------------------|
+| Topology awareness | None | Full — topological order + upstream propagation |
+| Upstream failure modeling | Ignored | Each parent's failure degrades child's effective p |
+| Edge semantics | Not used | `qualityDegradation` per edge, default 0.9 |
+| Result interpretation | Sum of independent per-task costs | Total workflow cost accounting for cascading failure |
+| Degenerate case | — | Set `propagationMode: 'independent'` or `defaultQualityDegradation: 0` |
 
 ## Validation
 
@@ -394,7 +512,59 @@ function parseTaskDirectory(dirPath: string): Promise<TaskInput[]>
 function serializeFrontmatter(task: TaskInput, body?: string): string
 ```
 
-Uses `gray-matter` (or equivalent) for the `---` delimited YAML split, then validates with typebox. The `serializeFrontmatter` function generates a markdown file from a `TaskInput`, supporting the `init` action.
+### No gray-matter — self-contained splitter + `yaml`
+
+We write our own `---` delimited frontmatter splitter (~40 lines) and use `yaml` (by eemeli) as the sole YAML parser. **`gray-matter` is not a dependency.**
+
+This is a deliberate supply-chain security decision:
+
+- **`gray-matter` depends on `js-yaml@3.x`** — an old version with known code injection vulnerabilities, pinned but unmaintained (last publish April 2021). Even with gray-matter's custom engine API, `js-yaml` is still *installed* in `node_modules` as a transitive dependency. The attack surface is the install, not the import.
+- **js-yaml has an active CVE** (CVE-2025-64718 — prototype pollution via YAML merge key `<<`). Installing it at all is unacceptable.
+- **gray-matter's full tree is 11 packages** (js-yaml, argparse, kind-of, section-matter, extend-shallow, is-extendable, strip-bom-string, etc.) — none of which we need for our use case.
+- **Recent npm supply chain attacks** (Sept 2025: 18-package phishing compromise targeting chalk/debug/etc., the Shai-Hulud self-replicating worm hitting 500+ packages, the axios RAT incident) demonstrate that every dependency in the tree is potential attack surface. Small, focused libraries with zero transitive deps are the class of packages most likely to survive the current ecosystem trend — massive dependency trees for trivial functionality are becoming a liability.
+
+**The splitter implementation:**
+
+```typescript
+import { parse as yamlParse, stringify as yamlStringify } from 'yaml'
+
+const DELIMITER = '---'
+
+function splitFrontmatter(str: string): { data: string; content: string } | null {
+  if (!str.startsWith(DELIMITER)) return null
+  if (str.charAt(DELIMITER.length) === DELIMITER.slice(-1)) return null
+
+  const afterOpen = str.slice(DELIMITER.length)
+  const closeIndex = afterOpen.indexOf('\n' + DELIMITER)
+  if (closeIndex === -1) return null
+
+  const data = afterOpen.slice(0, closeIndex)
+  const content = afterOpen.slice(closeIndex + 1 + DELIMITER.length).replace(/^\r?\n/, '')
+  return { data, content }
+}
+
+function parseFrontmatter(markdown: string): { data: Record<string, unknown>; content: string } {
+  const split = splitFrontmatter(markdown)
+  if (!split || split.data.trim() === '') return { data: {}, content: split?.content ?? markdown }
+  return { data: yamlParse(split.data), content: split.content }
+}
+
+function serializeFrontmatter(task: TaskInput, body?: string): string {
+  const frontmatter = yamlStringify(task)
+  return DELIMITER + '\n' + frontmatter + DELIMITER + '\n' + (body ?? '')
+}
+```
+
+**What we don't replicate from gray-matter:** TOML/Coffee engines, JavaScript eval engine, `section-matter` (nested sections), in-memory cache, `stringify()`. We don't use any of these. The `yaml` package handles `stringify` natively.
+
+**`yaml` package profile:**
+- Zero dependencies, full YAML 1.2 spec compliance, no known CVEs
+- Actively maintained, excellent TypeScript types
+- Single-package blast radius — if it's ever compromised, we fork it (pure JS, tractable to maintain)
+
+### WASM YAML parser — considered and rejected
+
+A Rust YAML crate compiled to WASM was considered as an alternative. This would eliminate even the `yaml` JS dependency, but it reintroduces complexity the napi→graphology pivot was designed to remove (Rust toolchain in CI, WASM compile target, cold-start latency, FFI boundary). The marginal security gain over `yaml` (already zero-dep) doesn't justify the added build complexity.
 
 ## Project Structure
 
@@ -413,13 +583,14 @@ taskgraph_ts/
 │   ├── graph/
 │   │   ├── index.ts           # TaskGraph class
 │   │   ├── construction.ts    # fromTasks, fromRecords, fromJSON, incremental building
-│   │   └── queries.ts         # hasCycles, findCycles, topologicalOrder, dependencies, dependents
+│   │   ├── queries.ts         # hasCycles, findCycles, topologicalOrder, dependencies, dependents
+│   │   └── mutation.ts        # removeTask, removeDependency, updateTask, updateEdgeAttributes
 │   ├── analysis/
 │   │   ├── index.ts           # Re-exports
 │   │   ├── critical-path.ts   # criticalPath, weightedCriticalPath
 │   │   ├── bottleneck.ts      # bottlenecks (graphology betweenness)
 │   │   ├── risk.ts            # riskPath, riskDistribution
-│   │   ├── cost-benefit.ts    # calculateTaskEv, workflowCost
+│   │   ├── cost-benefit.ts    # calculateTaskEv, workflowCost, computeEffectiveP
 │   │   ├── decompose.ts       # shouldDecompose
 │   │   └── defaults.ts        # resolveDefaults, enum numeric methods
 │   ├── frontmatter/
@@ -442,13 +613,13 @@ taskgraph_ts/
 
 | Package | Purpose |
 |---------|---------|
-| `graphology` | Directed graph data structure |
+| `graphology` | Directed graph data structure + event emitter |
 | `graphology-dag` | hasCycle, topologicalSort, topologicalGenerations |
 | `graphology-metrics` | betweenness centrality (bottleneck) |
-| `graphology-components` | connected/strongly-connected components |
+| `graphology-components` | strongly-connected components (findCycles pre-check) |
 | `graphology-operators` | subgraph extraction |
 | `@alkdev/typebox` | Schema definition, static types, runtime validation |
-| `gray-matter` | YAML frontmatter extraction from markdown |
+| `yaml` | YAML 1.2 parser (zero dependencies, no known CVEs) |
 
 ## Build & Distribution
 
@@ -460,15 +631,17 @@ taskgraph_ts/
 
 ## Open Questions
 
-1. **YAML parser choice** — `gray-matter` bundles its own YAML handling. Do we need a separate `yaml` dependency, or does gray-matter's built-in handling suffice for our frontmatter format?
+1. **Incremental vs rebuild on file change** — The OpenCode plugin watches task files on disk. When a file changes, should the plugin rebuild the entire graph from the directory, or apply incremental updates (remove old task, re-parse changed task, update edges)? Incremental is faster but must handle edge cases (task ID rename, dependency removal). Rebuild is simple and correct but O(n) on every change. For our graph sizes (10–200 nodes), rebuild may be fast enough that incremental isn't worth the complexity.
 
-2. **`findCycles` implementation** — graphology doesn't expose cycle extraction (only `hasCycle`). We need to implement DFS-based cycle extraction ourselves. Straightforward but worth noting.
+2. **Subgraph behavior** — `subgraph(filter)` returns a new `TaskGraph` with matching nodes and their internal edges. Should it also include edges to nodes *outside* the filter (marked as dangling)? Or strictly only internal edges? Strict internal-only is simpler and matches `graphology-operators` `subgraph` behavior, but consumers may want to know that a filtered task still has unresolved external dependencies.
 
-3. **`workflow-cost` DAG propagation** — The Rust CLI computes EV per-task independently (no upstream quality degradation). The Python research notebook has a DAG-propagation model. Should we implement the basic version (matching Rust) or include DAG propagation from the start?
+3. **`topologicalOrder` on cyclic graph** — Currently defined as throwing `CircularDependencyError`. An alternative is to return a partial ordering (all nodes not involved in cycles, in topological order) plus the cycle information. This would let consumers work with the acyclic portion while still being warned about cycles. Does this add enough value to justify the more complex return type?
 
-4. **Zod interop** — `@alkdev/typebox` includes a `typemap` module for Zod compatibility. If consumers are forced into Zod by other parts of their stack, we can provide typebox ↔ zod conversion. Not v1, but noted.
+4. **`workflowCost` skip-completed semantics** — When `includeCompleted: false` (default), completed tasks' EV is excluded from the total. But the DAG-propagation model still needs to account for completed tasks' contributions to downstream success probability (a completed task has p=1.0 for propagation purposes). Is this the right semantic, or should completed tasks also be excluded from the propagation chain?
 
-5. **Graph event listeners** — graphology supports event listeners on node/edge mutations. Should `TaskGraph` expose these, or is that the caller's job if they need reactivity?
+5. **Depth-escalation for DAG propagation** — The AAR research notes that single-hop quality degradation doesn't capture compounding depth effects (a task 10 levels deep faces qualitatively different risk than one at depth 2). A simple heuristic: escalate the `risk` categorical one level for every N steps of dependency depth. Or: apply a depth multiplier to `qualityDegradation`. This is deferred to v2 pending empirical calibration, but the architecture should not preclude adding it later.
+
+6. **Edge key generation** — graphology supports `addEdgeWithKey` for explicit edge keys. Using simple incremental keys (`${source}->${target}`) avoids the overhead of graphology's built-in random key generation. However, this precludes parallel edges between the same node pair. Since task dependency graphs should not have duplicate edges, this constraint is acceptable. Should we adopt this pattern from the start?
 
 ## Performance Notes
 
@@ -488,6 +661,7 @@ For background on the security motivation:
 - **Attack vector**: Agents with bash access processing untrusted content (web pages, academic papers, API responses) can be manipulated via prompt injection. This includes subtle attacks like Unicode steganography hiding instructions in otherwise legitimate content.
 - **Defense in depth**: The instruction firewall project (using Ternary Bonsai 1.7b classifier to detect instruction-bearing content) addresses detection. This project addresses the other side — reducing the blast radius by removing bash as a requirement for analysis operations.
 - **Tool-based access**: Instead of `taskgraph --json list | jq`, agents call `task.list()` as a tool. No shell, no injection surface, no data exfiltration path through bash.
+- **Supply chain defense**: We write our own `---` frontmatter splitter (~40 lines) and depend only on `yaml` (zero transitive deps, no known CVEs). No `gray-matter`, no `js-yaml` — eliminates 11 packages from the tree. Recent npm supply chain attacks (18-package phishing compromise, Shai-Hulud self-replicating worm, axios RAT) demonstrate that every installed dependency is attack surface. Small, focused libraries with zero transitive deps are the class of packages most likely to survive the current ecosystem trend — massive dependency trees for trivial functionality are becoming a liability.
 
 ## References
 
@@ -499,3 +673,4 @@ For background on the security motivation:
 - open-coordinator plugin (registry pattern ref): `/workspace/@alkimiadev/open-coordinator/`
 - Older graphology + typebox POC: `/workspace/lbug_test/convert_graphology.ts`
 - Older taskgraph MCP POC (graphology usage ref): `/workspace/tools/ade_mcp/src/core/TaskGraphManager.ts`
+- Python cost-benefit research: `/workspace/@alkimiadev/taskgraph/docs/research/cost_benefit_analysis_framework.py`
