@@ -368,60 +368,78 @@ function shouldDecomposeTask(attrs: TaskGraphNodeAttributes): DecomposeResult
 ### Return types
 
 ```typescript
-interface RiskPathResult {
-  path: string[]
-  totalRisk: number
-}
+import { Type, Static } from "@alkdev/typebox";
 
-interface DecomposeResult {
-  shouldDecompose: boolean
-  reasons: string[]  // e.g. ["risk: high", "scope: broad"]
-}
 
-interface WorkflowCostOptions {
-  includeCompleted?: boolean
-  limit?: number
-  propagationMode?: 'independent' | 'dag-propagate'  // default: 'dag-propagate'
-  defaultQualityDegradation?: number                  // default: 0.9, used when edge has no explicit value
-}
+export const RiskPathResult = Type.Object({
+  path: Type.Array(Type.String()),
+  totalRisk: Type.Number(),
+});
+export type RiskPathResult = Static<typeof RiskPathResult>;
 
-interface WorkflowCostResult {
-  tasks: Array<{
-    taskId: string
-    name: string
-    ev: number
-    pIntrinsic: number
-    pEffective: number
-    probability: number
-    scopeCost: number
-    impactWeight: number
-  }>
-  totalEv: number
-  averageEv: number
-  propagationMode: 'independent' | 'dag-propagate'
-}
+export const DecomposeResult = Type.Object({
+  shouldDecompose: Type.Boolean(),
+  reasons: Type.Array(Type.String()),
+});
+export type DecomposeResult = Static<typeof DecomposeResult>;
 
-interface EvConfig {
-  retries?: number          // default: 2
-  fallbackCost?: number     // default: 20.0
-  timeLost?: number         // default: 0.5
-  valueRate?: number        // default: 100.0
-}
+export const WorkflowCostOptions = Type.Object({
+  includeCompleted: Type.Optional(Type.Boolean()),
+  limit: Type.Optional(Type.Number()),
+  propagationMode: Type.Optional(
+    Type.Union([Type.Literal("independent"), Type.Literal("dag-propagate")])
+  ),
+  defaultQualityDegradation: Type.Optional(Type.Number()),
+});
+export type WorkflowCostOptions = Static<typeof WorkflowCostOptions>;
 
-interface EvResult {
-  ev: number
-  pSuccess: number
-  expectedRetries: number
-}
 
-interface RiskDistributionResult {
-  trivial: string[]
-  low: string[]
-  medium: string[]
-  high: string[]
-  critical: string[]
-  unspecified: string[]
-}
+export const WorkflowCostResult = Type.Object({
+  tasks: Type.Array(
+    Type.Object({
+      taskId: Type.String(),
+      name: Type.String(),
+      ev: Type.Number(),
+      pIntrinsic: Type.Number(),
+      pEffective: Type.Number(),
+      probability: Type.Number(),
+      scopeCost: Type.Number(),
+      impactWeight: Type.Number(),
+    })
+  ),
+  totalEv: Type.Number(),
+  averageEv: Type.Number(),
+  propagationMode: Type.Union([
+    Type.Literal("independent"),
+    Type.Literal("dag-propagate"),
+  ]),
+});
+export type WorkflowCostResult = Static<typeof WorkflowCostResult>;
+
+export const EvConfig = Type.Object({
+  retries: Type.Optional(Type.Number()),
+  fallbackCost: Type.Optional(Type.Number()),
+  timeLost: Type.Optional(Type.Number()),
+  valueRate: Type.Optional(Type.Number()),
+});
+export type EvConfig = Static<typeof EvConfig>;
+
+export const EvResult = Type.Object({
+  ev: Type.Number(),
+  pSuccess: Type.Number(),
+  expectedRetries: Type.Number(),
+});
+export type EvResult = Static<typeof EvResult>;
+
+export const RiskDistributionResult = Type.Object({
+  trivial: Type.Array(Type.String()),
+  low: Type.Array(Type.String()),
+  medium: Type.Array(Type.String()),
+  high: Type.Array(Type.String()),
+  critical: Type.Array(Type.String()),
+  unspecified: Type.Array(Type.String()),
+});
+export type RiskDistributionResult = Static<typeof RiskDistributionResult>;
 ```
 
 ## findCycles Implementation
@@ -629,19 +647,76 @@ taskgraph_ts/
 - **Build**: `tsc` for declarations + bundler for distribution
 - **No platform-specific binaries** — this is the whole point of the pivot
 
-## Open Questions
+## Resolved Design Decisions
 
-1. **Incremental vs rebuild on file change** — The OpenCode plugin watches task files on disk. When a file changes, should the plugin rebuild the entire graph from the directory, or apply incremental updates (remove old task, re-parse changed task, update edges)? Incremental is faster but must handle edge cases (task ID rename, dependency removal). Rebuild is simple and correct but O(n) on every change. For our graph sizes (10–200 nodes), rebuild may be fast enough that incremental isn't worth the complexity.
+1. **Incremental vs rebuild on file change** — **Rebuild.** For our graph sizes (10–200 nodes), `graph.import()` from a serialized blob is sub-millisecond. Incremental updates would require tracking ID renames, dependency removals, and edge reconciliation — a whole change-detection layer for zero measurable performance gain. Both consumers (alkhub builds from DB query results; OpenCode plugin rebuilds from directory on file change) are well-served by rebuild. If a future use case requires incremental updates, add it as an optimization then.
 
-2. **Subgraph behavior** — `subgraph(filter)` returns a new `TaskGraph` with matching nodes and their internal edges. Should it also include edges to nodes *outside* the filter (marked as dangling)? Or strictly only internal edges? Strict internal-only is simpler and matches `graphology-operators` `subgraph` behavior, but consumers may want to know that a filtered task still has unresolved external dependencies.
+2. **Subgraph behavior** — **Strict internal-only.** `subgraph(filter)` returns a new `TaskGraph` with matching nodes and only edges where both endpoints are in the filtered set. This matches `graphology-operators` `subgraph` behavior and produces valid subgraphs for all algorithms (topo sort, betweenness, etc.). External dependency information is available on the original graph via `dependencies()`/`dependents()`. A separate `externalDependencies(filter)` utility can be added later if consumers need "show me what this subgraph depends on outside itself."
 
-3. **`topologicalOrder` on cyclic graph** — Currently defined as throwing `CircularDependencyError`. An alternative is to return a partial ordering (all nodes not involved in cycles, in topological order) plus the cycle information. This would let consumers work with the acyclic portion while still being warned about cycles. Does this add enough value to justify the more complex return type?
+3. **`topologicalOrder` on cyclic graph** — **Throw `CircularDependencyError`.** Both consumers treat cycles as bugs: alkhub's data comes from a validated DB schema; the OpenCode plugin's data comes from frontmatter that should be validated before graph construction. A partial ordering return type adds API complexity for a case that shouldn't happen in practice. `findCycles()` already exists for debugging when cycles are detected.
 
-4. **`workflowCost` skip-completed semantics** — When `includeCompleted: false` (default), completed tasks' EV is excluded from the total. But the DAG-propagation model still needs to account for completed tasks' contributions to downstream success probability (a completed task has p=1.0 for propagation purposes). Is this the right semantic, or should completed tasks also be excluded from the propagation chain?
+4. **`workflowCost` skip-completed semantics** — **Always propagate through completed nodes; exclude from output only.** When `includeCompleted: false`, completed tasks are excluded from the result's task list, but they **remain in the propagation chain** with p=1.0. Removing completed tasks from propagation would *worsen* downstream probability estimates — exactly the opposite of what "what's left" queries need. The "show me what's done / not done" UX concern belongs in `list` with status filtering, not in `workflowCost`.
 
-5. **Depth-escalation for DAG propagation** — The AAR research notes that single-hop quality degradation doesn't capture compounding depth effects (a task 10 levels deep faces qualitatively different risk than one at depth 2). A simple heuristic: escalate the `risk` categorical one level for every N steps of dependency depth. Or: apply a depth multiplier to `qualityDegradation`. This is deferred to v2 pending empirical calibration, but the architecture should not preclude adding it later.
+5. **Depth-escalation for DAG propagation** — **Deferred to v2.** The multiplicative propagation model already captures depth effects implicitly: each hop compounds another `<1.0` factor. The Python research model shows substantial EV divergence between good and poor upstream planning (213% cost increase) purely from this compounding — without any explicit depth penalty. Adding an explicit depth heuristic on top would double-count the depth effect until we have empirical calibration data. The architecture supports future depth-escalation via per-edge `qualityDegradation` adjustments or `risk` categorical escalation without API changes.
 
-6. **Edge key generation** — graphology supports `addEdgeWithKey` for explicit edge keys. Using simple incremental keys (`${source}->${target}`) avoids the overhead of graphology's built-in random key generation. However, this precludes parallel edges between the same node pair. Since task dependency graphs should not have duplicate edges, this constraint is acceptable. Should we adopt this pattern from the start?
+6. **Edge key generation** — **Adopt `${source}->${target}` keys from the start.** Using `addEdgeWithKey` with deterministic keys (`task-a->task-b`) avoids graphology's random key generation overhead and produces readable/debuggable edge identifiers. The constraint — no parallel edges between the same node pair — is correct for DAG dependency graphs. Duplicate dependency declarations are a validation error, not a valid use case.
+
+## Class Decomposition: Avoiding the Monolith
+
+The `TaskGraph` class as specified has ~25 methods spanning graph construction, mutation, queries, analysis, cost-benefit math, validation, and export. Making it a monolith would create duplicate work: both alkhub and the OpenCode plugin need to call the same analysis functions, but through different dispatch mechanisms.
+
+**The library is decomposed into standalone functions + a thin `TaskGraph` data class.**
+
+The `TaskGraph` class handles **graph construction, mutation, and basic queries only**:
+
+```typescript
+class TaskGraph {
+  // Construction
+  static fromTasks(tasks: TaskInput[]): TaskGraph
+  static fromRecords(tasks: TaskInput[], edges: DependencyEdge[]): TaskGraph
+  static fromJSON(data: TaskGraphSerialized): TaskGraph
+  addTask(id: string, attributes: TaskGraphNodeAttributes): void
+  addDependency(prerequisite: string, dependent: string): void
+
+  // Mutation
+  removeTask(id: string): void
+  removeDependency(prerequisite: string, dependent: string): void
+  updateTask(id: string, attributes: Partial<TaskGraphNodeAttributes>): void
+  updateEdgeAttributes(prerequisite: string, dependent: string, attrs: Partial<TaskGraphEdgeAttributes>): void
+
+  // Queries
+  hasCycles(): boolean
+  findCycles(): string[][]
+  topologicalOrder(): string[]
+  dependencies(taskId: string): string[]
+  dependents(taskId: string): string[]
+  taskCount(): number
+  getTask(taskId: string): TaskGraphNodeAttributes | undefined
+
+  // Export
+  export(): TaskGraphSerialized
+  toJSON(): TaskGraphSerialized
+  get raw(): Graph
+}
+```
+
+**All analysis functions are standalone** — they take a `TaskGraph` (or its underlying `Graph`) as their first argument. This is what the project structure already reflects (`src/analysis/critical-path.ts`, `src/analysis/risk.ts`, etc.):
+
+```typescript
+// Analysis functions (standalone, composable)
+function parallelGroups(graph: TaskGraph): string[][]
+function criticalPath(graph: TaskGraph): string[]
+function weightedCriticalPath(graph: TaskGraph, weightFn: ...): string[]
+function bottlenecks(graph: TaskGraph): Array<{ taskId: string; score: number }>
+function riskPath(graph: TaskGraph): RiskPathResult
+function shouldDecomposeTask(attrs: TaskGraphNodeAttributes): DecomposeResult
+function workflowCost(graph: TaskGraph, options?: WorkflowCostOptions): WorkflowCostResult
+function riskDistribution(graph: TaskGraph): RiskDistributionResult
+```
+
+**The operations pattern (env/registry) belongs at the consumer layer, not the library layer.** The library exports pure functions. The OpenCode plugin wraps them in its own dispatch (`task({action: "workflowCost"})`). alkhub wraps them in its own operation definitions. The library doesn't need a registry — it's a toolkit, not a service.
+
+This avoids duplicate work: the same `workflowCost` implementation is called by both consumers, each wrapping it in their own dispatch mechanism.
 
 ## Performance Notes
 
