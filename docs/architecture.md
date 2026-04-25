@@ -539,7 +539,7 @@ This is a deliberate supply-chain security decision:
 - **`gray-matter` depends on `js-yaml@3.x`** — an old version with known code injection vulnerabilities, pinned but unmaintained (last publish April 2021). Even with gray-matter's custom engine API, `js-yaml` is still *installed* in `node_modules` as a transitive dependency. The attack surface is the install, not the import.
 - **js-yaml has an active CVE** (CVE-2025-64718 — prototype pollution via YAML merge key `<<`). Installing it at all is unacceptable.
 - **gray-matter's full tree is 11 packages** (js-yaml, argparse, kind-of, section-matter, extend-shallow, is-extendable, strip-bom-string, etc.) — none of which we need for our use case.
-- **Recent npm supply chain attacks** (Sept 2025: 18-package phishing compromise targeting chalk/debug/etc., the Shai-Hulud self-replicating worm hitting 500+ packages, the axios RAT incident) demonstrate that every dependency in the tree is potential attack surface. Small, focused libraries with zero transitive deps are the class of packages most likely to survive the current ecosystem trend — massive dependency trees for trivial functionality are becoming a liability.
+- **Recent npm supply chain attacks** (April 2026: 18-package phishing compromise targeting chalk/debug/etc., the Shai-Hulud self-replicating worm hitting 500+ packages, the axios RAT incident) demonstrate that every dependency in the tree is potential attack surface. Small, focused libraries with zero transitive deps are the class of packages most likely to survive the current ecosystem trend — massive dependency trees for trivial functionality are becoming a liability.
 
 **The splitter implementation:**
 
