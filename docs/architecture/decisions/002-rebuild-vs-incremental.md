@@ -24,3 +24,5 @@ When task data changes (file edits, DB updates), the in-memory graph needs to re
 ### Mitigation
 
 If a future use case requires incremental updates, add it as an optimization then. The API surface (construction methods) supports both patterns — incremental construction exists via `addTask`/`addDependency`.
+
+An incremental update architecture has been explored in [incremental-update-exploration.md](../incremental-update-exploration.md). The key finding is that **the win is reactivity (fine-grained event notifications), not performance**. For <200 node graphs, rebuild is always sub-millisecond. If a consumer needs reactive updates, they can use graphology's event system directly via `graph.raw` and implement change detection at the consumer layer, without the library taking on the complexity of diff-based updates.
