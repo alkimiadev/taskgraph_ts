@@ -62,13 +62,13 @@ This document defines the SDD process for the alk.dev project. It leverages:
 
 **Process**:
 1. Coordinator identifies parallelizable work
-2. Coordinator spawns worktrees + sessions (via `worktree_make swarm` or hub `coord.spawn` when available)
+2. Coordinator spawns worktrees + sessions (via `worktree({action: "spawn", ...})` or hub `coord.spawn` when available)
    - Feature work: `.worktrees/feat/<task-id>/` → Implementation Specialist
    - Research POCs: `.worktrees/research/<task-id>/` → POC Specialist
 3. Coordinator injects task context into each session
 4. Agents execute tasks with self-verification
-5. On completion: update task status, commit to worktree branch
-6. On blocker: Safe Exit protocol, create blocker task
+5. On completion: agent notifies coordinator, updates task status, commits to worktree branch
+6. On blocker: Safe Exit protocol, agent notifies coordinator, create blocker task
 7. Merge worktrees back to main when complete
 
 **Output**: Completed, verified implementation
@@ -138,20 +138,19 @@ This document defines the SDD process for the alk.dev project. It leverages:
 
 **Mode**: Primary (manages worktrees and agent sessions)
 
-**Current (stopgap)**: Uses the open-coordinator opencode plugin for worktree management + session messaging. State tracked in `~/.config/opencode/open-coordinator/state.json`.
-
-**Future**: Uses hub coordination operations (`coord.spawn`, `coord.status`, `coord.message`, `coord.abort`) via the call protocol. State persisted in Postgres `mappings` table. Spoke runners replace the in-process plugin model.
+**Uses**: The `worktree` tool from the **open-coordinator** opencode plugin. Single tool with `{action, args}` dispatch. Role is auto-detected — coordinator sessions get the full operation set, spawned implementation sessions get a limited set (current, notify, status). No mode toggle required.
 
 **Tools**:
-- `worktree_mode`, `worktree_make` (swarm), `worktree_cleanup`, `worktree_overview`
+- `worktree({action, args})` — spawn, sessions, dashboard, message, abort, cleanup
 - Bash (opencode CLI for session interaction)
 - Read (monitor task files)
+- `memory` / `memory_compact` — context management and session history (via @alkdev/open-memory, when available)
 
 **Key Behaviors**:
 - Identify parallelizable task groups
-- Spawn worktrees + sessions via `worktree_make swarm` (current) or `hub.call("coord.spawn", ...)` (future)
+- Spawn worktrees + sessions via `worktree({action: "spawn", ...})`
 - Inject task context into sessions
-- Monitor progress
+- Monitor progress via `worktree({action: "sessions"})` and dashboard
 - Handle blocked tasks (escalate or reassign)
 - Merge completed worktrees
 
@@ -170,7 +169,10 @@ This document defines the SDD process for the alk.dev project. It leverages:
 
 **Tools**:
 - Read, Write, Edit, Glob, Grep, Bash
+- `worktree({action: "notify", ...})` — report progress/blockers to coordinator
+- `worktree({action: "current"})` — verify worktree assignment
 - webSearch (documentation lookup)
+- `memory` / `memory_compact` — context management (via @alkdev/open-memory, when available)
 
 **Key Behaviors**:
 - Load task context (architecture, dependencies)
@@ -178,6 +180,7 @@ This document defines the SDD process for the alk.dev project. It leverages:
 - Implement following architecture constraints
 - Self-verify against acceptance criteria
 - Use Safe Exit when blocked
+- Notify coordinator via worktree tool
 - Commit to worktree branch
 
 **Deliverables**:
@@ -377,42 +380,62 @@ Use graph analysis to determine where reviews should happen:
 
 ## Coordinator Implementation
 
-### Current (Stopgap)
+### Current (open-coordinator plugin)
 
-The Coordinator uses the open-coordinator opencode plugin for worktree management and session messaging. This is a fork of open-trees with added session monitoring and messaging capabilities.
+The Coordinator uses the `worktree` tool from the open-coordinator opencode plugin. It's a single tool with `{action, args}` dispatch — no separate enable/toggle steps. Role is auto-detected from session state.
 
 ```
 1. Identify parallel work
    Read task files → groups of independent tasks
 
 2. Spawn worktrees + sessions
-   worktree_make swarm → creates .worktrees/feat/<branch>
+   worktree({action: "spawn", args: {
+     tasks: ["auth-setup", "db-schema", "api-routes"],
+     prefix: "feat/",
+     agent: "implementation-specialist",
+     prompt: "Your task: {{task}}. Read tasks/{{task}}.md for details."
+   }})
 
-3. Inject task context
-   opencode run -s <session-id> --agent implementation-specialist "Your task: <task-id>"
+3. Monitor progress
+   worktree({action: "sessions"})     → status of all spawned sessions
+   worktree({action: "dashboard"})    → worktree + session overview
 
-4. Monitor progress
-   worktree_overview dashboard → status of all worktrees
+4. Handle issues
+   - Recovery message: worktree({action: "message", args: {sessionID: "ses_...", message: "..."}})
+   - Abort if unrecoverable: worktree({action: "abort", args: {sessionID: "ses_..."}})
 
 5. Handle completion
    - Agent commits to worktree branch
+   - Agent notifies via worktree({action: "notify", ...})
    - Coordinator merges back to main
 
-6. Handle blockers
-   - Agent uses Safe Exit
-   - Coordinator escalates or reassigns
+6. Cleanup
+   worktree({action: "cleanup", args: {action: "remove", pathOrBranch: "feat/auth-setup"}})
 ```
 
-State tracked at:
-```
-~/.config/opencode/open-coordinator/state.json
+The plugin also provides SSE-based anomaly detection (model degradation, high error count, session stall) with automatic notifications to the coordinator.
+
+### Implementation Agent Operations
+
+Spawned sessions (implementation specialists, code reviewers, POC specialists) get a limited worktree interface:
+
+```text
+worktree({action: "current"})                              → Show worktree mapping
+worktree({action: "notify", args: {message: "...", level: "info|blocking"}})  → Report to coordinator
+worktree({action: "status"})                                 → Show worktree git status
 ```
 
-Each entry maps:
-- `worktreePath` → filesystem location
-- `branch` → git branch name
-- `sessionID` → opencode session ID
-- `createdAt` → timestamp
+The plugin auto-injects `workdir` for bash commands when a session is mapped to a worktree.
+
+### Context & Memory (with @alkdev/open-memory)
+
+When the open-memory plugin is available alongside open-coordinator, the coordinator gains:
+- `memory({tool: "children", args: {sessionId: "..."}})` — view sub-agent sessions spawned from the coordinator
+- `memory({tool: "messages", args: {sessionId: "..."}})` — read a spawned session's conversation for debugging
+- `memory({tool: "context"})` — check context window usage before long monitoring sessions
+- `memory_compact()` — proactively compact at natural breakpoints
+
+Implementation agents can also use `memory({tool: "context"})` and `memory_compact()` to manage their context during long tasks.
 
 ### Future (Hub Operations)
 
@@ -432,7 +455,7 @@ Once the hub is operational, coordination uses native operations:
    hub.call("coord.abort", { sessionId })
 ```
 
-State moves from `state.json` to Postgres `mappings` table. The open-coordinator plugin becomes unnecessary — the hub provides the same capabilities as server-side operations accessible from any environment.
+State moves from in-process tracking to Postgres `mappings` table. The open-coordinator plugin becomes unnecessary — the hub provides the same capabilities as server-side operations accessible from any environment.
 
 ## Document Structure
 
