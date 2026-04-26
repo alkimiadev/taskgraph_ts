@@ -26,6 +26,15 @@ Where categorical fields provide the inputs:
 - **C_success** = `scopeCostEstimate(scope)` — cost when it works
 - **C_fail** = modeled via `EvConfig` parameters: `scopeCost + fallbackCost + timeLost × expectedRetries`. The `calculateTaskEv` function uses `scopeCost` as `C_success` and derives `C_fail` from the same `scopeCost` plus `fallbackCost` and `timeLost` scaled by expected retry count. `fallbackCost` and `timeLost` default to 0 if not provided, yielding `C_fail = C_success` in the simplest case. The `valueRate` parameter converts the result to dollar terms if needed.
 
+### EvConfig Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `retries` | 0 | Maximum retry attempts. Used in the EV calculation: each retry adds `timeLost` cost. When 0, no retry cost is considered. |
+| `fallbackCost` | 0 | Cost incurred when a task fails and no retry succeeds. Added to `scopeCost` in the failure term. |
+| `timeLost` | 0 | Time cost per retry attempt. Total retry cost = `retries × timeLost`. |
+| `valueRate` | 0 | Dollar conversion rate. When non-zero, multiplies the EV result to produce dollar-denominated output. When 0, EV is in abstract cost units. |
+
 ### Structural Insight: Upstream Failures Multiply
 
 ```
@@ -54,7 +63,7 @@ The Rust CLI computes EV per-task independently — no upstream quality degradat
 
 ### Implementation Approach
 
-DAG propagation is the **default mode**. The independent model is a degenerate case (set `defaultQualityDegradation: 0` or `propagationMode: 'independent'`).
+DAG propagation is the **default mode**. The independent model is a degenerate case (set `defaultQualityRetention: 1.0` or `propagationMode: 'independent'`).
 
 The algorithm processes tasks in topological order, maintaining an `upstreamSuccessProbs` map:
 
@@ -66,13 +75,13 @@ The algorithm processes tasks in topological order, maintaining an `upstreamSucc
 
 2. When computing effective probability for a task with prerequisites:
    - Start with intrinsic probability
-   - For each prerequisite, compute inherited quality: `parentP + (1 - parentP) × (1 - qualityDegradation)`
+   - For each prerequisite, compute inherited quality: `parentP + (1 - parentP) × qualityRetention`
    - Multiply all inherited quality factors together with intrinsic probability
 
-3. The `qualityDegradation` per edge determines how much a parent's failure bleeds through:
-   - 0.0 = no propagation (independent model)
-   - 1.0 = full propagation (parent failure guarantees child failure)
-   - default 0.9 = high but not total propagation
+3. The `qualityRetention` per edge determines how much upstream quality is preserved:
+   - 0.0 = no retention (full propagation — upstream failure guarantees child failure)
+   - 1.0 = full retention (independent model — upstream failure has no effect on child)
+   - default 0.9 = high retention (only 10% of upstream failure bleeds through)
 
 ### Per-task output
 
@@ -90,9 +99,9 @@ When `includeCompleted: false`, completed tasks are excluded from the result's t
 |-----------|----------------------|-------------------------------|
 | Topology awareness | None | Full — topological order + upstream propagation |
 | Upstream failure modeling | Ignored | Each parent's failure degrades child's effective p |
-| Edge semantics | Not used | `qualityDegradation` per edge, default 0.9 |
+| Edge semantics | Not used | `qualityRetention` per edge, default 0.9 |
 | Result interpretation | Sum of independent per-task costs | Total workflow cost accounting for cascading failure |
-| Degenerate case | — | Set `propagationMode: 'independent'` or `defaultQualityDegradation: 0` |
+| Degenerate case | — | Set `propagationMode: 'independent'` or `defaultQualityRetention: 1.0` |
 
 ## Risk Analysis Functions
 

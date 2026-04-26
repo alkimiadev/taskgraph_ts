@@ -30,18 +30,18 @@ The graph must be constructable from multiple sources to serve both consumers:
 
 | Path | Source | Consumer | Edge Attributes |
 |------|--------|----------|----------------|
-| `fromTasks` | `TaskInput[]` (frontmatter/JSON) | OpenCode plugin, tests | Default `qualityDegradation` (0.9) |
-| `fromRecords` | `TaskInput[]` + `DependencyEdge[]` | alkhub (DB query results) | Per-edge `qualityDegradation` |
+| `fromTasks` | `TaskInput[]` (frontmatter/JSON) | OpenCode plugin, tests | Default `qualityRetention` (0.9) |
+| `fromRecords` | `TaskInput[]` + `DependencyEdge[]` | alkhub (DB query results) | Per-edge `qualityRetention` |
 | `fromJSON` | `TaskGraphSerialized` (graphology export) | Persistence/round-trip | Preserved from source |
 | Incremental | `addTask` / `addDependency` calls | Programmatic/testing | Default or explicit |
 
 **Preferred internal approach**: For paths 1 and 2, build a serialized graph JSON blob (nodes array + edges array) and call `graph.import()`. This is faster than N individual `addNode`/`addEdge` calls and avoids the verbose builder API.
 
-### qualityDegradation on Construction
+### qualityRetention on Construction
 
-`fromTasks` constructs edges from `dependsOn` arrays in frontmatter, which cannot express per-edge `qualityDegradation`. Those edges get the default (0.9). `fromRecords` and `fromJSON` support per-edge values. Edges can be augmented after construction via `updateEdgeAttributes`.
+`fromTasks` constructs edges from `dependsOn` arrays in frontmatter, which cannot express per-edge `qualityRetention`. Those edges get the default (0.9). `fromRecords` and `fromJSON` support per-edge values. Edges can be augmented after construction via `updateEdgeAttributes`.
 
-This distinction exists because the file-based frontmatter model has no syntax for per-edge attributes, while the DB-backed model (alkhub) stores per-edge `qualityDegradation` in the `task_dependencies` table. The library serves both without forcing either into the other's shape.
+This distinction exists because the file-based frontmatter model has no syntax for per-edge attributes, while the DB-backed model (alkhub) stores per-edge `qualityRetention` in the `task_dependencies` table. The library serves both without forcing either into the other's shape.
 
 ## Categorical Field Defaults
 
@@ -59,23 +59,45 @@ The raw nullable data is preserved on the graph. `resolveDefaults` is called int
 
 > See [schemas.md](schemas.md) for the full enum definitions and numeric method tables.
 
-## Node Metadata
+## TaskInput → Node Attributes Transformation
 
-Unlike the original napi design where `DependencyGraph` only stored IDs, node attributes carry the categorical metadata directly. This eliminates the need to pass `TaskInput[]` alongside the graph — `weightedCriticalPath` and `riskPath` read attributes from the graph nodes.
+When constructing from `TaskInput[]` (via `fromTasks`), the input data shape differs from the graph node attribute shape. The transformation is:
 
-The graph acts as an in-memory index/metadata store for categorical fields. Task body content, file path, and other non-graph data stay external to the library.
+| TaskInput field | Graph node attribute | Notes |
+|----------------|---------------------|-------|
+| `id` | Node key (not an attribute) | Used as `graph.addNode(id, attributes)` key |
+| `name` | `name: Type.String()` (required) | Directly transferred |
+| `dependsOn` | Creates edges (not a node attribute) | Each element → `addDependency(id, dep)` with default `qualityRetention: 0.9` |
+| `status`, `scope`, `risk`, `impact`, `level`, `priority` | Same-name optional attributes | `Type.Optional(Nullable(Enum))` → `Type.Optional(Enum)`: YAML `null` values and absent fields both map to attribute `undefined` (not stored on the node) |
+| `tags`, `assignee`, `due`, `created`, `modified` | **Not stored on graph** | These fields exist on `TaskInput` but are not part of `TaskGraphNodeAttributes`. They belong to the caller/consumer, not the graph. |
+
+The key point: `TaskInput` uses `Type.Optional(Nullable(Enum))` (field can be absent *or* set to null), but `TaskGraphNodeAttributes` uses `Type.Optional(Enum)` (field can be absent, but not null). The transformation strips `null` → `undefined` (not stored). This is correct because on the graph, absent and null mean the same thing: "not assessed."
+
+For `fromRecords`, the same transformation applies to tasks, and edges come from the explicit `DependencyEdge[]` array with per-edge `qualityRetention` values.
 
 ## Edge Attributes
 
-Edges carry `qualityDegradation` for the DAG-propagation cost model. If absent, the default (0.9) is used by `workflowCost`. Other algorithms ignore edge attributes.
+Edges carry `qualityRetention` for the DAG-propagation cost model. If absent, the default (0.9) is used by `workflowCost`. Other algorithms ignore edge attributes.
 
-> See [cost-benefit.md](cost-benefit.md) for how qualityDegradation is used in propagation.
+> See [cost-benefit.md](cost-benefit.md) for how qualityRetention is used in propagation.
+
+> **Note**: This field was renamed from `qualityDegradation` to `qualityRetention` because the original name was semantically inverted — a value of 0.9 meant "90% quality retained" (low degradation), not "90% degradation" (high degradation). See [schemas.md](schemas.md) for details.
 
 ## Graph Reactivity
 
 graphology's `Graph` class extends Node.js `EventEmitter` and emits fine-grained mutation events: `nodeAdded`, `edgeAdded`, `nodeDropped`, `edgeDropped`, `nodeAttributesUpdated`, `edgeAttributesUpdated`, `cleared`, `edgesCleared`.
 
 `TaskGraph` does **not** wrap or re-emit these events. Consumers that need reactivity (e.g., file-watch → coordinator notification) access the underlying graphology instance via `graph.raw` and attach listeners directly. This keeps `TaskGraph` as a pure computation library with no opinion about reactivity.
+
+## Construction Error Handling
+
+| Method | Dangling references (node not in graph) | Duplicate IDs/edges | Cycles |
+|--------|----------------------------------------|--------------------|----|
+| `fromTasks` | Silently creates nodes for each `dependsOn` target that doesn't match a known task ID. These become orphan nodes with default attributes. **Recommendation**: run `validateGraph()` after construction to detect dangling references. | `DuplicateNodeError` for duplicate task IDs. Uses `mergeNode` for nodes with the same ID (idempotent merge of attributes). Duplicate `dependsOn` entries for the same pair create only one edge (idempotent via `addEdgeWithKey`). | Not detected at construction time. Call `hasCycles()` or `validateGraph()` to detect. |
+| `fromRecords` | `TaskNotFoundError` if an edge references a task ID not in the `tasks` array. Dependencies are edges and must have both endpoints present. | `DuplicateNodeError` for duplicate task IDs. `DuplicateEdgeError` for duplicate prerequisite→dependent pairs. | Not detected at construction time. Call `validateGraph()` to detect. |
+| `fromJSON` | Validated against `TaskGraphSerialized` schema. Orphan nodes in the JSON are preserved (graphology import doesn't enforce connectivity). | Uses graphology's `import()` which handles duplicates via merge behavior. | Not detected at construction time. |
+| `addTask` | N/A | `DuplicateNodeError` if ID already exists | N/A |
+| `addDependency` | `TaskNotFoundError` if prerequisite or dependent doesn't exist | `DuplicateEdgeError` if the edge already exists | Not detected until `hasCycles()` or `topologicalOrder()` |
 
 ## Constraints
 

@@ -51,7 +51,7 @@ taskgraph_ts/
 │   │   ├── parse.ts           # YAML/frontmatter parsing + typebox validation
 │   │   └── serialize.ts       # TaskInput → markdown with frontmatter
 │   └── error/
-│       └── index.ts           # TaskgraphError, TaskNotFoundError, CircularDependencyError, InvalidInputError
+│       └── index.ts           # TaskgraphError, TaskNotFoundError, CircularDependencyError, InvalidInputError, DuplicateNodeError, DuplicateEdgeError
 ├── test/
 │   ├── graph.test.ts
 │   ├── analysis.test.ts

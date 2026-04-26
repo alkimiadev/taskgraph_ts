@@ -40,7 +40,7 @@ const edits = Value.Diff(oldSerialized, newSerialized);
 //   { type: 'update', path: '/nodes/2/attributes/risk', value: 'high' },
 //   { type: 'insert', path: '/nodes/5', value: { key: 'task-f', attributes: {...} } },
 //   { type: 'delete', path: '/nodes/3' },
-//   { type: 'update', path: '/edges/0/attributes/qualityDegradation', value: 0.8 },
+//   { type: 'update', path: '/edges/0/attributes/qualityRetention', value: 0.8 },
 // ]
 ```
 

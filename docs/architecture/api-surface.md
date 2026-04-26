@@ -50,8 +50,9 @@ class TaskGraph {
 
   // Reactivity
   get raw(): Graph  // underlying graphology instance for direct event listener attachment
-}
 ```
+
+**Warning on `graph.raw`**: Mutating the underlying graphology instance directly bypasses `TaskGraph`'s validation and invariants. Operations that violate the "no parallel edges" constraint (adding a second edge between the same node pair without using `addEdgeWithKey`), or that create self-loops in a graph configured to disallow them, will not be caught by `TaskGraph` methods. Consumers using `raw` should treat the graph as read-only for structural changes and use `TaskGraph` methods for all mutations.
 
 **Notes**:
 - `topologicalOrder()` throws `CircularDependencyError` (with `cycles` populated) when cyclic — see [ADR-003](decisions/003-topo-order-throws-on-cycle.md)
@@ -131,12 +132,12 @@ const DecomposeResult = Type.Object({
 
 ```typescript
 const WorkflowCostOptions = Type.Object({
-  includeCompleted: Type.Optional(Type.Boolean()),
-  limit: Type.Optional(Type.Number()),
+  includeCompleted: Type.Optional(Type.Boolean()),  // default: false. When false, completed tasks are excluded from output but remain in propagation with p=1.0
+  limit: Type.Optional(Type.Number()),               // default: no limit. If set, limits the number of tasks in the result. Useful for large graphs when only top-N results are needed.
   propagationMode: Type.Optional(
     Type.Union([Type.Literal("independent"), Type.Literal("dag-propagate")])
   ),
-  defaultQualityDegradation: Type.Optional(Type.Number()),
+  defaultQualityRetention: Type.Optional(Type.Number()),  // default: 0.9. Edge quality when not explicitly set.
 })
 ```
 

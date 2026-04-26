@@ -751,7 +751,7 @@ const TaskGraphNodeAttributesUpdate = Type.Partial(TaskGraphNodeAttributes);
 type TaskGraphNodeAttributesUpdate = Static<typeof TaskGraphNodeAttributesUpdate>;
 
 const TaskGraphEdgeAttributes = Type.Object({
-  qualityDegradation: Type.Optional(Type.Number()),
+  qualityRetention: Type.Optional(Type.Number()),
 });
 type TaskGraphEdgeAttributes = Static<typeof TaskGraphEdgeAttributes>;
 ```
@@ -838,7 +838,7 @@ const WorkflowCostOptions = Type.Object({
   propagationMode: Type.Optional(
     Type.Union([Type.Literal("independent"), Type.Literal("dag-propagate")])
   ),
-  defaultQualityDegradation: Type.Optional(Type.Number({ default: 0.9 })),
+  defaultQualityRetention: Type.Optional(Type.Number({ default: 0.9 })),
 });
 type WorkflowCostOptions = Static<typeof WorkflowCostOptions>;
 
@@ -892,7 +892,7 @@ type RiskDistributionResult = Static<typeof RiskDistributionResult>;
 const DependencyEdge = Type.Object({
   from: Type.String(),
   to: Type.String(),
-  qualityDegradation: Type.Optional(Type.Number({ default: 0.9 })),
+  qualityRetention: Type.Optional(Type.Number({ default: 0.9 })),
 });
 type DependencyEdge = Static<typeof DependencyEdge>;
 ```

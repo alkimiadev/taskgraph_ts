@@ -63,7 +63,7 @@ Two downstream projects consume this library. Understanding their needs shapes t
 The hub's database is the source of truth for tasks at runtime. The coordinator loads task rows + dependency edges from the DB, builds a graphology graph in memory, and runs graph algorithms. This consumer:
 
 - Builds graphs from structured data (DB query results), not files
-- Needs per-edge `qualityDegradation` attributes for the DAG propagation model
+- Needs per-edge `qualityRetention` attributes for the DAG propagation model
 - Requires the same analysis functions the CLI provides, but called as an API, not via shell
 
 > See alkhub task storage spec: `/workspace/@alkdev/alkhub_ts/docs/architecture/storage/tasks.md`

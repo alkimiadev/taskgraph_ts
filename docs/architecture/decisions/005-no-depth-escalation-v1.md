@@ -15,7 +15,7 @@ In the DAG-propagation model, each hop compounds another `<1.0` factor. This imp
 ### Positive
 - No double-counting of depth effects
 - Simpler model to explain, implement, and debug
-- Architecture supports future depth-escalation via per-edge `qualityDegradation` adjustments or `risk` categorical escalation without API changes
+- Architecture supports future depth-escalation via per-edge `qualityRetention` adjustments or `risk` categorical escalation without API changes
 
 ### Negative
 - May underestimate cost for very deep dependency chains where risk genuinely escalates with depth
@@ -23,4 +23,4 @@ In the DAG-propagation model, each hop compounds another `<1.0` factor. This imp
 
 ### Future
 
-If empirical data from actual task outcomes shows that depth-escalation is needed, it can be added without API changes — either by adjusting `qualityDegradation` per depth, or by escalating the `risk` categorical. This is a calibration question, not an architecture question.
+If empirical data from actual task outcomes shows that depth-escalation is needed, it can be added without API changes — either by adjusting `qualityRetention` per depth, or by escalating the `risk` categorical. This is a calibration question, not an architecture question.

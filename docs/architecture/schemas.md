@@ -42,6 +42,16 @@ The TypeBox schemas serve as the single source of truth for both types and valid
 
 ## Input Schemas
 
+### Schema Utility: Nullable
+
+A generic helper for making schema types accept `null` in addition to their defined values:
+
+```typescript
+const Nullable = <T extends TSchema>(T: T) => Type.Union([T, Type.Null()])
+```
+
+Used in `TaskInput` for fields that can be explicitly set to `null` in YAML frontmatter (distinct from the field being absent).
+
 ### TaskInput
 
 The universal input shape for a task, matching the Rust `TaskFrontmatter` field set. Note the use of `Type.Optional(Nullable(...))` for categorical fields — this makes the field itself optional at the object level AND nullable when present. YAML frontmatter distinguishes between "key absent" and "key set to null" (e.g., `risk:` with no value), so we need both.
@@ -73,11 +83,13 @@ Where `Nullable = <T extends TSchema>(T: T) => Type.Union([T, Type.Null()])`.
 const DependencyEdge = Type.Object({
   from: Type.String(),              // prerequisite task id
   to: Type.String(),                // dependent task id
-  qualityDegradation: Type.Optional(Type.Number()),  // 0.0–1.0, default 0.9
+  qualityRetention: Type.Optional(Type.Number({ default: 0.9 })),  // 0.0–1.0, default 0.9
 })
 ```
 
-The `qualityDegradation` field models how much upstream failure bleeds through to the dependent task. Value of 0.0 means no propagation (independent model), 1.0 means full propagation. Default is 0.9 following the Python research model. Only used by `workflowCost` in DAG-propagation mode; ignored by all other algorithms.
+> **Note on naming**: The original name `qualityDegradation` was semantically inverted — a value of 0.9 meant "0.9 quality retained" (low degradation), not "0.9 degradation" (high degradation). The field is now named `qualityRetention` to match its actual semantics: 0.0 means zero quality retention (full propagation of upstream failure), 1.0 means perfect quality retention (independent model). See [cost-benefit.md](cost-benefit.md) for the propagation formula.
+
+The `qualityRetention` field models how much upstream quality is preserved through a dependency edge. Value of 0.0 means no retention (full propagation of upstream failure to the dependent), 1.0 means complete retention (independent model, upstream failure doesn't affect the dependent at all). Default is 0.9 following the Python research model. Only used by `workflowCost` in DAG-propagation mode; ignored by all other algorithms.
 
 ## Graph Attribute Schemas
 
@@ -101,7 +113,7 @@ const TaskGraphNodeAttributes = Type.Object({
 
 ```typescript
 const TaskGraphEdgeAttributes = Type.Object({
-  qualityDegradation: Type.Optional(Type.Number()),
+  qualityRetention: Type.Optional(Type.Number({ default: 0.9 })),
 })
 ```
 
@@ -140,7 +152,29 @@ const TaskRiskEnum = Type.Union([
 ])
 type TaskRisk = Static<typeof TaskRiskEnum>
 
-// ... same pattern for TaskImpact, TaskLevel, TaskPriority, TaskStatus
+const TaskImpactEnum = Type.Union([
+  Type.Literal("isolated"), Type.Literal("component"),
+  Type.Literal("phase"), Type.Literal("project"),
+])
+type TaskImpact = Static<typeof TaskImpactEnum>
+
+const TaskLevelEnum = Type.Union([
+  Type.Literal("planning"), Type.Literal("decomposition"),
+  Type.Literal("implementation"), Type.Literal("review"), Type.Literal("research"),
+])
+type TaskLevel = Static<typeof TaskLevelEnum>
+
+const TaskPriorityEnum = Type.Union([
+  Type.Literal("low"), Type.Literal("medium"),
+  Type.Literal("high"), Type.Literal("critical"),
+])
+type TaskPriority = Static<typeof TaskPriorityEnum>
+
+const TaskStatusEnum = Type.Union([
+  Type.Literal("pending"), Type.Literal("in-progress"),
+  Type.Literal("completed"), Type.Literal("failed"), Type.Literal("blocked"),
+])
+type TaskStatus = Static<typeof TaskStatusEnum>
 ```
 
 See the naming convention table in "Design Decision: TypeBox as Single Source of Truth" above for the `Enum` suffix rule.
@@ -190,8 +224,10 @@ function scopeTokenEstimate(scope: TaskScope): number      // 500–10000
 function riskSuccessProbability(risk: TaskRisk): number    // 0.50–0.98
 function riskWeight(risk: TaskRisk): number                // 0.02–0.50
 function impactWeight(impact: TaskImpact): number          // 1.0–3.0
-function resolveDefaults(attrs: Partial<TaskGraphNodeAttributes>): ResolvedTaskAttributes
+function resolveDefaults(attrs: Partial<TaskGraphNodeAttributes> & Pick<TaskGraphNodeAttributes, 'name'>): ResolvedTaskAttributes
 ```
+
+> **Why `Pick<TaskGraphNodeAttributes, 'name'>`**: `resolveDefaults` needs at minimum a `name` to produce a valid `ResolvedTaskAttributes`. The `Partial<>` wrapper would allow `name` to be `undefined`, but the graph always has a `name` on every node (it's required in `TaskGraphNodeAttributes`). The `Pick` ensures callers provide it.
 
 ## ResolvedTaskAttributes
 

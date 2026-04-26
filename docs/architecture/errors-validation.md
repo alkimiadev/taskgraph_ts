@@ -32,8 +32,8 @@ class DuplicateNodeError extends TaskgraphError {
 }
 
 class DuplicateEdgeError extends TaskgraphError {
-  source: string
-  target: string
+  prerequisite: string
+  dependent: string
 }
 ```
 
@@ -45,7 +45,7 @@ class DuplicateEdgeError extends TaskgraphError {
 | `CircularDependencyError` | `topologicalOrder()` called on a cyclic graph |
 | `InvalidInputError` | Frontmatter parsing finds invalid field values or missing required fields |
 | `DuplicateNodeError` | `addTask` called with an ID that already exists in the graph |
-| `DuplicateEdgeError` | `addDependency` called for a source→target pair that already exists |
+| `DuplicateEdgeError` | `addDependency` called for a prerequisite→dependent pair that already exists |
 
 ### Mutation Operations on Non-Existent Targets
 
@@ -110,15 +110,15 @@ The library takes a strict approach to cycles:
 - `findCycles()` returns the actual cycle paths — for debugging and error reporting
 - `topologicalOrder()` **throws** `CircularDependencyError` when the graph is cyclic, rather than returning a partial ordering — see [ADR-003](decisions/003-topo-order-throws-on-cycle.md)
 
-**Cyclic graphs are a valid graph state** — they can be constructed, queried, and validated. Only operations that require a DAG (topo sort, critical path, parallel groups, workflow cost) throw on cycles. Construction never throws.
+**Cyclic graphs are a valid graph state** — they can be constructed, queried, and validated. Only operations that require a DAG (topo sort, critical path, parallel groups, workflow cost) throw on cycles. Construction methods enforce uniqueness but do not reject data quality issues.
 
 ## Construction vs. Validation Error Handling
 
 The fundamental contract:
 
-1. **Construction never throws** — `fromTasks`, `fromRecords`, `fromJSON`, `addTask`, `addDependency` can be called freely. `DuplicateNodeError` and `DuplicateEdgeError` are the exceptions — they represent programming errors (adding something that already exists), not data validation issues.
-2. **Validation returns error arrays** — `validateSchema()`, `validateGraph()`, and `validate()` collect issues without throwing.
-3. **`topologicalOrder()` is the operation-level exception** — it throws because returning a partial result would be silently incorrect.
+1. **Construction methods enforce uniqueness, not data quality** — `fromTasks`, `fromRecords`, `fromJSON`, `addTask`, `addDependency` throw only for uniqueness constraint violations (`DuplicateNodeError`, `DuplicateEdgeError`) and missing targets (`TaskNotFoundError`). Data quality issues (invalid enum values, missing required fields, cycles) are the domain of `validate()`, not construction.
+2. **Validation returns error arrays, never throws** — `validateSchema()`, `validateGraph()`, and `validate()` collect issues without throwing.
+3. **`topologicalOrder()` is the operation-level exception** — it throws on cyclic graphs because returning a partial result would be silently incorrect.
 
 This distinction exists because validation is a "check before you proceed" operation (collect all issues, show the user), while topo sort is an operation that cannot produce a meaningful result on a cyclic graph.
 
