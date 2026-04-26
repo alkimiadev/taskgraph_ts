@@ -65,7 +65,7 @@ Two validation levels, consistent with the Rust CLI's `validate` command:
 
 ### 1. Schema validation (`validateSchema()`)
 
-TypeBox `Value.Check` on input data — frontmatter fields, enum values, required fields. Returns `ValidationError[]`. Catches:
+TypeBox `Value.Check()` on input data — frontmatter fields, enum values, required fields. Returns `ValidationError[]`. The validation pipeline uses `Value.Errors()` for structured field-level detail (path, message, value) rather than `Value.Assert()` which throws without detail. `Value.Clean()` strips unknown properties before validation when processing untrusted input (e.g., frontmatter from external files). Catches:
 - Missing required fields (`id`, `name`)
 - Invalid enum values (e.g., `risk: "extreme"`)
 - Type mismatches (e.g., `dependsOn: "not-an-array"`)

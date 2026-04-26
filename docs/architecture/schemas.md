@@ -11,36 +11,61 @@ TypeBox schema definitions, categorical enums, and their numeric methods.
 
 All data shapes are defined as TypeBox schemas. This gives us:
 
-1. **Static TypeScript types** via `Static<typeof Schema>` — compile-time safety
-2. **Runtime validation** via `Value.Check()` / `Value.Assert()` — reject bad input before it hits the graph
+1. **Static TypeScript types** via `Static<typeof Schema>` — every schema constant has a corresponding `type X = Static<typeof X>` alias. The schema is the source of truth; the type is derived from it. No separate `interface` or `type` definitions outside of `Static<typeof>`.
+2. **Runtime validation** via `Value.Check()` / `Value.Errors()` — structured field-level error reporting with path, message, and value. Used for input validation before graph construction.
 3. **JSON Schema** for free — can be used by consumers for their own validation, API contracts, etc.
 
 The TypeBox schemas serve as the single source of truth for both types and validation. No separate type definitions, no Zod, no ad-hoc validation logic. Consumers with Zod in their stack can convert at their boundary.
+
+### Naming Convention
+
+| Category | Convention | Example |
+|----------|-----------|---------|
+| Enum schema constant | PascalCase + `Enum` suffix | `TaskStatusEnum` |
+| Enum type alias | PascalCase, no suffix | `type TaskStatus = Static<typeof TaskStatusEnum>` |
+| Object schema constant | PascalCase, no suffix | `TaskInput`, `ResolvedTaskAttributes` |
+| Object type alias | Same name as schema constant (TypeScript resolves by context) | `type TaskInput = Static<typeof TaskInput>` |
+| Function signatures | Use compile-time type aliases | `function riskSuccessProbability(risk: TaskRisk): number` |
+
+**Rule**: Schema constant = runtime value (has `Enum` suffix only for enums). Type alias = compile-time type (never has `Enum` suffix). Function signatures always use the type alias.
+
+### TypeBox Patterns Used
+
+- `Type.Union([Type.Literal(...)])` for categorical enums — the idiomatic pattern for finite string unions
+- `Type.Optional()` for nullable-optional fields
+- `Static<typeof Schema>` for deriving all TypeScript types — never hand-write `interface` or `type` for schemas
+- `Value.Check()` + `Value.Errors()` for structured validation (not `Value.Assert()` which throws without field-level detail)
+- `Value.Clean()` for sanitizing untrusted input (strips unknown properties)
+- `Type.Partial()` for deriving update types (e.g., `TaskGraphNodeAttributesUpdate = Type.Partial(TaskGraphNodeAttributes)`)
+
+> See [docs/research/typebox-patterns.md](../research/typebox-patterns.md) for the full analysis of TypeBox patterns evaluated and adoption/skip decisions.
 
 ## Input Schemas
 
 ### TaskInput
 
-The universal input shape for a task, matching the Rust `TaskFrontmatter` field set:
+The universal input shape for a task, matching the Rust `TaskFrontmatter` field set. Note the use of `Type.Optional(Nullable(...))` for categorical fields — this makes the field itself optional at the object level AND nullable when present. YAML frontmatter distinguishes between "key absent" and "key set to null" (e.g., `risk:` with no value), so we need both.
 
 ```typescript
 const TaskInput = Type.Object({
   id: Type.String(),
   name: Type.String(),
   dependsOn: Type.Array(Type.String()),
-  status: Type.Optional(TaskStatusEnum),
-  scope: Type.Optional(TaskScopeEnum),
-  risk: Type.Optional(TaskRiskEnum),
-  impact: Type.Optional(TaskImpactEnum),
-  level: Type.Optional(TaskLevelEnum),
-  priority: Type.Optional(TaskPriorityEnum),
+  status: Type.Optional(Nullable(TaskStatusEnum)),
+  scope: Type.Optional(Nullable(TaskScopeEnum)),
+  risk: Type.Optional(Nullable(TaskRiskEnum)),
+  impact: Type.Optional(Nullable(TaskImpactEnum)),
+  level: Type.Optional(Nullable(TaskLevelEnum)),
+  priority: Type.Optional(Nullable(TaskPriorityEnum)),
   tags: Type.Optional(Type.Array(Type.String())),
-  assignee: Type.Optional(Type.String()),
-  due: Type.Optional(Type.String()),
-  created: Type.Optional(Type.String()),
-  modified: Type.Optional(Type.String()),
+  assignee: Type.Optional(Nullable(Type.String())),
+  due: Type.Optional(Nullable(Type.String())),
+  created: Type.Optional(Nullable(Type.String())),
+  modified: Type.Optional(Nullable(Type.String())),
 })
 ```
+
+Where `Nullable = <T extends TSchema>(T: T) => Type.Union([T, Type.Null()])`.
 
 ### DependencyEdge
 
@@ -102,16 +127,23 @@ This validates the graphology `export()` output and enables `import()` from vali
 
 Categorical enums are defined with `Type.Union(Type.Literal(...))` — string values matching the DB and frontmatter conventions.
 
-**Naming convention**: The TypeBox schema constants use an `Enum` suffix (e.g., `TaskScopeEnum`, `TaskRiskEnum`). The corresponding TypeScript type aliases drop the suffix (e.g., `type TaskScope = Static<typeof TaskScopeEnum>`). The schema constant is the runtime value; the type alias is the compile-time type. All function signatures use the compile-time type names.
+```typescript
+const TaskScopeEnum = Type.Union([
+  Type.Literal("single"), Type.Literal("narrow"),
+  Type.Literal("moderate"), Type.Literal("broad"), Type.Literal("system"),
+])
+type TaskScope = Static<typeof TaskScopeEnum>
 
-| Enum Schema Constant | TypeScript Type | Values |
-|----------------------|-----------------|--------|
-| `TaskScopeEnum` | `TaskScope` | single, narrow, moderate, broad, system |
-| `TaskRiskEnum` | `TaskRisk` | trivial, low, medium, high, critical |
-| `TaskImpactEnum` | `TaskImpact` | isolated, component, phase, project |
-| `TaskLevelEnum` | `TaskLevel` | planning, decomposition, implementation, review, research |
-| `TaskPriorityEnum` | `TaskPriority` | low, medium, high, critical |
-| `TaskStatusEnum` | `TaskStatus` | pending, in-progress, completed, failed, blocked |
+const TaskRiskEnum = Type.Union([
+  Type.Literal("trivial"), Type.Literal("low"),
+  Type.Literal("medium"), Type.Literal("high"), Type.Literal("critical"),
+])
+type TaskRisk = Static<typeof TaskRiskEnum>
+
+// ... same pattern for TaskImpact, TaskLevel, TaskPriority, TaskStatus
+```
+
+See the naming convention table in "Design Decision: TypeBox as Single Source of Truth" above for the `Enum` suffix rule.
 
 ### Numeric Methods
 
@@ -163,25 +195,30 @@ function resolveDefaults(attrs: Partial<TaskGraphNodeAttributes>): ResolvedTaskA
 
 ## ResolvedTaskAttributes
 
-The output of `resolveDefaults` — all categorical fields resolved to their numeric equivalents for use in analysis:
+The output of `resolveDefaults` — all categorical fields resolved to their numeric equivalents for use in analysis. Defined as a TypeBox schema (not a raw `interface`) so that `Static<typeof ResolvedTaskAttributes>` derives the TypeScript type:
 
 ```typescript
-interface ResolvedTaskAttributes {
-  name: string
-  scope: TaskScope
-  risk: TaskRisk
-  impact: TaskImpact
-  level: TaskLevel | null
-  priority: TaskPriority | null
-  status: TaskStatus | null
+const ResolvedTaskAttributes = Type.Object({
+  name: Type.String(),
+  scope: TaskScopeEnum,                            // resolved from default
+  risk: TaskRiskEnum,                              // resolved from default
+  impact: TaskImpactEnum,                          // resolved from default
+  level: Nullable(TaskLevelEnum),                  // nullable — label-only
+  priority: Nullable(TaskPriorityEnum),             // nullable — label-only
+  status: Nullable(TaskStatusEnum),                // nullable — label-only
   // Numeric equivalents (always present after resolution):
-  costEstimate: number
-  tokenEstimate: number
-  successProbability: number
-  riskWeight: number
-  impactWeight: number
-}
+  costEstimate: Type.Number(),
+  tokenEstimate: Type.Number(),
+  successProbability: Type.Number(),
+  riskWeight: Type.Number(),
+  impactWeight: Type.Number(),
+})
+type ResolvedTaskAttributes = Static<typeof ResolvedTaskAttributes>
 ```
+
+Where `Nullable` is a generic helper: `const Nullable = <T extends TSchema>(T: T) => Type.Union([T, Type.Null()])`
+
+Note how categorical fields that have defaults (`scope`, `risk`, `impact`) are no longer optional — `resolveDefaults` fills them in. Label-only fields (`level`, `priority`, `status`) remain nullable since they have no meaningful default.
 
 **Why `level`, `priority`, and `status` remain nullable**: These three fields are label-only enums with no numeric methods (see "Label-only enums" above). They are used for filtering and labeling, not for cost calculations. A task with `level: null` simply hasn't been categorized — the analysis functions don't need a numeric value for it. `risk`, `scope`, and `impact` are the only fields that feed into EV and risk calculations, so they're the only ones that need default resolution.
 

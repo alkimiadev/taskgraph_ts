@@ -107,7 +107,7 @@ function calculateTaskEv(p: number, scopeCost: number, impactWeight: number, con
 
 ## Return Types
 
-All return types are defined as TypeBox schemas (for runtime validation + JSON Schema export) with corresponding static TypeScript types.
+All return types are defined as TypeBox schemas (for runtime validation + JSON Schema export). The corresponding TypeScript types are derived via `Static<typeof Schema>` — no separate `interface` or `type` definitions. See [schemas.md](schemas.md) for the full naming convention.
 
 ### RiskPathResult
 
