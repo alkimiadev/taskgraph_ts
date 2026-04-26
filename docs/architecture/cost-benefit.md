@@ -89,7 +89,7 @@ Each task in the `WorkflowCostResult.tasks` array includes both `pIntrinsic` and
 
 ### Skip-completed semantics
 
-When `includeCompleted: false`, completed tasks are excluded from the result's task list, but they **remain in the propagation chain** with p=1.0. Removing completed tasks from propagation would *worsen* downstream probability estimates — exactly the opposite of what "what's left" queries need.
+When `includeCompleted: false`, tasks with `status: "completed"` are excluded from the result's task list, but they **remain in the propagation chain** with p=1.0. Removing completed tasks from propagation would *worsen* downstream probability estimates — exactly the opposite of what "what's left" queries need. Only the `"completed"` status triggers this exclusion; tasks with `"failed"` or `"blocked"` status are included regardless of the `includeCompleted` setting.
 
 > See [ADR-004](decisions/004-workflow-cost-dag-propagation.md) and [ADR-005](decisions/005-no-depth-escalation-v1.md).
 

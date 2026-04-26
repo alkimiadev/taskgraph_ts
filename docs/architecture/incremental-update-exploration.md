@@ -5,7 +5,7 @@ last_updated: 2026-04-26
 
 # Incremental Update Architecture Notes
 
-**Draft exploration** — not yet a decision. This document explores whether incremental updates (via TypeBox Diff/Patch → graphology mutation mapping) could replace or complement the current "rebuild on change" approach.
+**Draft exploration** — not yet a decision. This document explores whether incremental updates (via TypeBox Diff/Patch → graphology mutation mapping) could replace or complement the current "rebuild on change" approach. If this exploration leads to a decision, it will become ADR-008.
 
 ## Current Approach: Rebuild on Change
 
@@ -168,7 +168,7 @@ The key insight is that **the win is reactivity, not performance**. For <200 nod
 ## References
 
 - ADR-002: Rebuild vs Incremental → [decisions/002-rebuild-vs-incremental.md](decisions/002-rebuild-vs-incremental.md)
-- TypeBox Diff/Patch: `/workspace/@alkdev/typebox/docs/values/diff-patch.md`
-- Graphology mutation API: `/workspace/graphology/docs/mutation.md`
-- Graphology serialization (import/export): `/workspace/graphology/docs/serialization.md`
-- POC: `/workspace/lbug_test/convert_graphology.ts`
+- TypeBox Diff/Patch: [../../node_modules/@alkdev/typebox/docs/values/diff-patch.md](../../node_modules/@alkdev/typebox/docs/values/diff-patch.md) (monorepo: `@alkdev/typebox/docs/values/diff-patch.md`)
+- Graphology mutation API: [Graphology docs on GitHub](https://graphology.github.io/standard-library/mutation.html)
+- Graphology serialization (import/export): [Graphology docs on GitHub](https://graphology.github.github.io/serialization.html)
+- POC: `lbug_test/convert_graphology.ts` (monorepo-internal)

@@ -71,8 +71,9 @@ The actual YAML parsing is delegated to `yaml.parse()`. The serializer uses `yam
 - **No gray-matter, no js-yaml** — these are hard exclusions for supply chain security.
 - **YAML 1.2 only** — the `yaml` package implements YAML 1.2, which is a superset of JSON and avoids the ambiguous type coercion issues of YAML 1.1.
 - **Frontmatter is a parsing concern, not a graph concern** — parsed `TaskInput` objects are fed to `TaskGraph.fromTasks()`. The parser doesn't know about graphs; the graph doesn't know about files.
+- **File I/O functions use Node.js `fs` APIs** — `parseTaskFile` and `parseTaskDirectory` depend on `node:fs/promises` and are only available in Node.js-compatible runtimes. `parseFrontmatter` (the pure parsing function) is runtime-agnostic. Consumers targeting Deno or Bun should use `parseFrontmatter` directly with their own file-reading mechanism, or import the file I/O functions from a separate entry point if a browser-compatible bundle is needed.
 
 ## References
 
 - `yaml` package: https://github.com/eemeli/yaml
-- CVE-2025-64718 (js-yaml prototype pollution): tracked in npm audit database
+- CVE-2025-64718 (js-yaml prototype pollution via `<<` merge key): confirmed, patched in js-yaml 4.1.1 and 3.14.2, but gray-matter still depends on the vulnerable 3.x line

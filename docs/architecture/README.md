@@ -66,7 +66,7 @@ The hub's database is the source of truth for tasks at runtime. The coordinator 
 - Needs per-edge `qualityRetention` attributes for the DAG propagation model
 - Requires the same analysis functions the CLI provides, but called as an API, not via shell
 
-> See alkhub task storage spec: `/workspace/@alkdev/alkhub_ts/docs/architecture/storage/tasks.md`
+> See alkhub task storage spec (monorepo: `@alkdev/alkhub_ts/docs/architecture/storage/tasks.md`)
 
 ### OpenCode plugin (future)
 
@@ -126,13 +126,32 @@ All significant decisions are documented as ADRs in [decisions/](decisions/):
 | [006](decisions/006-deterministic-edge-keys.md) | Deterministic edge keys via addEdgeWithKey |
 | [007](decisions/007-subgraph-internal-only.md) | Subgraph returns internal-only edges |
 
+## Document Lifecycle
+
+Architecture documents use YAML frontmatter with `status` and `last_updated` fields:
+
+```yaml
+---
+status: draft | stable | deprecated
+last_updated: YYYY-MM-DD
+---
+```
+
+| Status | Meaning | Transitions |
+|--------|---------|-------------|
+| `draft` | Under active development. Content may change significantly. Implementation should not start until the document reaches `stable`. | → `stable` when implementation is complete and API contract is verified by tests. |
+| `stable` | API contracts are locked. Changes require a review cycle and may warrant an ADR if they affect documented decisions. | → `deprecated` when superseded. → `draft` if a fundamental redesign is needed (rare). |
+| `deprecated` | Superseded by another document. Kept for reference. Links should point to the replacement. | Removed when no longer referenced. |
+
+ADR documents use a separate `Status` field in their body: `Proposed`, `Accepted`, `Deprecated`, or `Superseded`. ADRs never revert from `Accepted`.
+
 ## References
 
-- Rust taskgraph CLI: `/workspace/@alkimiadev/taskgraph/`
-- graphology monorepo: `/workspace/graphology/`
-- alkhub task storage spec: `/workspace/@alkdev/alkhub_ts/docs/architecture/storage/tasks.md`
-- @alkdev/typebox: `/workspace/@alkdev/typebox/`
-- Cost-benefit framework: `/workspace/@alkimiadev/taskgraph/docs/framework.md`
-- Workflow guide: `/workspace/@alkimiadev/taskgraph/docs/workflow.md`
-- Python cost-benefit research: `/workspace/@alkimiadev/taskgraph/docs/research/cost_benefit_analysis_framework.py`
-- SDD process: `/workspace/@alkdev/taskgraph_ts/docs/sdd_process.md`
+- Rust taskgraph CLI: [GitHub — @alkimiadev/taskgraph](https://github.com/alkimiadev/taskgraph) (monorepo: `@alkimiadev/taskgraph/`)
+- graphology monorepo: [GitHub — graphology](https://github.com/graphology/graphology) (monorepo: `graphology/`)
+- alkhub task storage spec: `@alkdev/alkhub_ts/docs/architecture/storage/tasks.md` (monorepo)
+- @alkdev/typebox: `@alkdev/typebox/` (monorepo)
+- Cost-benefit framework: `@alkimiadev/taskgraph/docs/framework.md` (monorepo)
+- Workflow guide: `@alkimiadev/taskgraph/docs/workflow.md` (monorepo)
+- Python cost-benefit research: `@alkimiadev/taskgraph/docs/research/cost_benefit_analysis_framework.py` (monorepo)
+- SDD process: [SDD process](../sdd_process.md)
