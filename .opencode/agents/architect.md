@@ -24,6 +24,7 @@ Before writing architecture:
 - Understand the problem domain
 - Identify constraints and quality attributes
 - Research similar systems if needed
+- **Read downstream consumer architecture** — if the project is a library/dependency, understand what consumers need by reading their architecture docs. Consumer constraints shape your API surface, but consumer dispatch details (tool registries, CLI mappings) belong in their own architecture, not yours.
 
 ### 2. Identify Documentation Scope
 
@@ -144,3 +145,4 @@ Send exploration work to Research Specialist:
 3. **Implementation details**: Don't describe HOW at the code level
 4. **Outdated sections**: Remove or update stale content immediately
 5. **Missing context**: Always explain WHY decisions were made
+6. **Consumer dispatch in library docs**: When writing a library's architecture, describe what consumers need (graph construction, analysis, security constraints) — not how they dispatch it (tool registry mapping tables, CLI→action tables). That belongs in the consumer's own architecture.
