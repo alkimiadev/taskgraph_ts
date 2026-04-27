@@ -2,6 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { hasCycle } from 'graphology-dag';
 import { TaskGraph, type TaskGraphInner } from '../src/graph/index.js';
 import type { TaskGraphSerialized } from '../src/schema/index.js';
+import type { TaskInput, DependencyEdge } from '../src/schema/index.js';
+import {
+  DuplicateNodeError,
+  DuplicateEdgeError,
+  TaskNotFoundError,
+  InvalidInputError,
+} from '../src/error/index.js';
 import {
   createTaskGraph,
   linearChainTasks,
@@ -201,6 +208,42 @@ describe('TaskGraph class', () => {
       expect(existing.raw.order).toBe(1);
       expect(existing.raw.hasNode('m')).toBe(true);
     });
+
+    it('preserves orphan nodes from JSON', () => {
+      const data: TaskGraphSerialized = {
+        attributes: {},
+        options: { type: 'directed', multi: false, allowSelfLoops: false },
+        nodes: [
+          { key: 'orphan', attributes: { name: 'Orphan Node' } },
+          { key: 'connected', attributes: { name: 'Connected' } },
+        ],
+        edges: [],
+      };
+      const tg = TaskGraph.fromJSON(data);
+      expect(tg.raw.order).toBe(2);
+      expect(tg.raw.hasNode('orphan')).toBe(true);
+      expect(tg.raw.size).toBe(0);
+    });
+
+    it('validates input against TaskGraphSerialized schema', () => {
+      // Missing required 'options' field
+      const invalid = {
+        attributes: {},
+        nodes: [],
+        edges: [],
+      } as unknown as TaskGraphSerialized;
+      expect(() => TaskGraph.fromJSON(invalid)).toThrow(InvalidInputError);
+    });
+
+    it('validates node key type', () => {
+      const invalid = {
+        attributes: {},
+        options: { type: 'directed', multi: false, allowSelfLoops: false },
+        nodes: [{ key: 123, attributes: { name: 'Bad' } }],
+        edges: [],
+      } as unknown as TaskGraphSerialized;
+      expect(() => TaskGraph.fromJSON(invalid)).toThrow(InvalidInputError);
+    });
   });
 
   describe('re-export from src/index.ts', () => {
@@ -210,6 +253,522 @@ describe('TaskGraph class', () => {
       expect(mod.TaskGraph).toBeDefined();
       expect(typeof mod.TaskGraph).toBe('function');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TaskGraph.fromTasks() tests
+// ---------------------------------------------------------------------------
+
+describe('TaskGraph.fromTasks', () => {
+  it('creates a graph from a simple TaskInput array', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'Task A', dependsOn: [] },
+      { id: 'b', name: 'Task B', dependsOn: ['a'] },
+    ];
+    const tg = TaskGraph.fromTasks(tasks);
+    expect(tg.raw.order).toBe(2);
+    expect(tg.raw.size).toBe(1);
+    expect(tg.raw.hasNode('a')).toBe(true);
+    expect(tg.raw.hasNode('b')).toBe(true);
+    expect(tg.raw.hasEdge('a->b')).toBe(true);
+  });
+
+  it('creates edges with default qualityRetention 0.9', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [] },
+      { id: 'b', name: 'B', dependsOn: ['a'] },
+    ];
+    const tg = TaskGraph.fromTasks(tasks);
+    const attrs = tg.raw.getEdgeAttributes('a->b');
+    expect(attrs.qualityRetention).toBe(0.9);
+  });
+
+  it('silently creates orphan nodes for dangling dependsOn references', () => {
+    const tasks: TaskInput[] = [
+      { id: 'b', name: 'Task B', dependsOn: ['nonexistent-a'] },
+    ];
+    const tg = TaskGraph.fromTasks(tasks);
+    expect(tg.raw.order).toBe(2);
+    expect(tg.raw.hasNode('nonexistent-a')).toBe(true);
+    expect(tg.raw.getNodeAttributes('nonexistent-a').name).toBe('nonexistent-a');
+    expect(tg.raw.hasEdge('nonexistent-a->b')).toBe(true);
+  });
+
+  it('throws DuplicateNodeError for duplicate task IDs', () => {
+    const tasks: TaskInput[] = [
+      { id: 'dup', name: 'First', dependsOn: [] },
+      { id: 'dup', name: 'Second', dependsOn: [] },
+    ];
+    expect(() => TaskGraph.fromTasks(tasks)).toThrow(DuplicateNodeError);
+    expect(() => TaskGraph.fromTasks(tasks)).toThrow('Duplicate node: dup');
+  });
+
+  it('deduplicates edges when the same dependsOn appears twice', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [] },
+      { id: 'b', name: 'B', dependsOn: ['a', 'a'] },
+    ];
+    const tg = TaskGraph.fromTasks(tasks);
+    expect(tg.raw.size).toBe(1);
+  });
+
+  it('handles empty task array', () => {
+    const tg = TaskGraph.fromTasks([]);
+    expect(tg.raw.order).toBe(0);
+    expect(tg.raw.size).toBe(0);
+  });
+
+  it('handles tasks with no dependencies', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [] },
+      { id: 'b', name: 'B', dependsOn: [] },
+      { id: 'c', name: 'C', dependsOn: [] },
+    ];
+    const tg = TaskGraph.fromTasks(tasks);
+    expect(tg.raw.order).toBe(3);
+    expect(tg.raw.size).toBe(0);
+  });
+
+  it('strips null categorical fields (null → undefined, not stored on node)', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [], risk: null, scope: null },
+    ];
+    const tg = TaskGraph.fromTasks(tasks);
+    const attrs = tg.raw.getNodeAttributes('a');
+    expect(attrs.risk).toBeUndefined();
+    expect(attrs.scope).toBeUndefined();
+    expect(attrs.name).toBe('A');
+  });
+
+  it('preserves non-null categorical fields', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [], risk: 'high', scope: 'broad' },
+    ];
+    const tg = TaskGraph.fromTasks(tasks);
+    const attrs = tg.raw.getNodeAttributes('a');
+    expect(attrs.risk).toBe('high');
+    expect(attrs.scope).toBe('broad');
+  });
+
+  it('does not store tags, assignee, due, created, modified on graph nodes', () => {
+    const tasks: TaskInput[] = [
+      {
+        id: 'a',
+        name: 'A',
+        dependsOn: [],
+        tags: ['backend', 'urgent'],
+        assignee: 'alice',
+        due: '2025-01-01',
+        created: '2024-12-01',
+        modified: '2024-12-15',
+      },
+    ];
+    const tg = TaskGraph.fromTasks(tasks);
+    const attrs = tg.raw.getNodeAttributes('a');
+    // These fields should NOT exist on node attributes
+    expect((attrs as Record<string, unknown>)['tags']).toBeUndefined();
+    expect((attrs as Record<string, unknown>)['assignee']).toBeUndefined();
+    expect((attrs as Record<string, unknown>)['due']).toBeUndefined();
+    expect((attrs as Record<string, unknown>)['created']).toBeUndefined();
+    expect((attrs as Record<string, unknown>)['modified']).toBeUndefined();
+  });
+
+  it('builds a linear chain graph correctly', () => {
+    const tasks: TaskInput[] = linearChainTasks.map(t => ({ ...t }));
+    const tg = TaskGraph.fromTasks(tasks);
+    expect(tg.raw.order).toBe(4);
+    expect(tg.raw.size).toBe(3);
+    expect(tg.raw.hasEdge('A->B')).toBe(true);
+    expect(tg.raw.hasEdge('B->C')).toBe(true);
+    expect(tg.raw.hasEdge('C->D')).toBe(true);
+  });
+
+  it('builds a diamond graph correctly', () => {
+    const tasks: TaskInput[] = diamondTasks.map(t => ({ ...t }));
+    const tg = TaskGraph.fromTasks(tasks);
+    expect(tg.raw.order).toBe(4);
+    expect(tg.raw.size).toBe(4);
+  });
+
+  it('builds a graph with cycles (not rejected at construction time)', () => {
+    const tasks: TaskInput[] = cyclicTasks.map(t => ({ ...t }));
+    const tg = TaskGraph.fromTasks(tasks);
+    expect(tg.raw.order).toBe(4);
+    expect(hasCycle(tg.raw)).toBe(true);
+  });
+
+  it('uses deterministic edge keys with -> format', () => {
+    const tasks: TaskInput[] = [
+      { id: 'setup-project', name: 'Setup', dependsOn: [] },
+      { id: 'implement-feature', name: 'Implement', dependsOn: ['setup-project'] },
+    ];
+    const tg = TaskGraph.fromTasks(tasks);
+    expect(tg.raw.hasEdge('setup-project->implement-feature')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TaskGraph.fromRecords() tests
+// ---------------------------------------------------------------------------
+
+describe('TaskGraph.fromRecords', () => {
+  it('creates a graph from tasks and explicit edges', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [] },
+      { id: 'b', name: 'B', dependsOn: [] },
+    ];
+    const edges: DependencyEdge[] = [
+      { from: 'a', to: 'b', qualityRetention: 0.85 },
+    ];
+    const tg = TaskGraph.fromRecords(tasks, edges);
+    expect(tg.raw.order).toBe(2);
+    expect(tg.raw.size).toBe(1);
+    expect(tg.raw.hasEdge('a->b')).toBe(true);
+    expect(tg.raw.getEdgeAttributes('a->b').qualityRetention).toBe(0.85);
+  });
+
+  it('uses default qualityRetention 0.9 when not specified', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [] },
+      { id: 'b', name: 'B', dependsOn: [] },
+    ];
+    const edges: DependencyEdge[] = [
+      { from: 'a', to: 'b' },
+    ];
+    const tg = TaskGraph.fromRecords(tasks, edges);
+    expect(tg.raw.getEdgeAttributes('a->b').qualityRetention).toBe(0.9);
+  });
+
+  it('throws TaskNotFoundError for dangling prerequisite reference', () => {
+    const tasks: TaskInput[] = [
+      { id: 'b', name: 'B', dependsOn: [] },
+    ];
+    const edges: DependencyEdge[] = [
+      { from: 'nonexistent', to: 'b' },
+    ];
+    expect(() => TaskGraph.fromRecords(tasks, edges)).toThrow(TaskNotFoundError);
+    expect(() => TaskGraph.fromRecords(tasks, edges)).toThrow('Task not found: nonexistent');
+  });
+
+  it('throws TaskNotFoundError for dangling dependent reference', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [] },
+    ];
+    const edges: DependencyEdge[] = [
+      { from: 'a', to: 'nonexistent' },
+    ];
+    expect(() => TaskGraph.fromRecords(tasks, edges)).toThrow(TaskNotFoundError);
+  });
+
+  it('throws DuplicateNodeError for duplicate task IDs', () => {
+    const tasks: TaskInput[] = [
+      { id: 'dup', name: 'First', dependsOn: [] },
+      { id: 'dup', name: 'Second', dependsOn: [] },
+    ];
+    const edges: DependencyEdge[] = [];
+    expect(() => TaskGraph.fromRecords(tasks, edges)).toThrow(DuplicateNodeError);
+  });
+
+  it('throws DuplicateEdgeError for duplicate prerequisite→dependent pairs', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [] },
+      { id: 'b', name: 'B', dependsOn: [] },
+    ];
+    const edges: DependencyEdge[] = [
+      { from: 'a', to: 'b' },
+      { from: 'a', to: 'b', qualityRetention: 0.5 },
+    ];
+    expect(() => TaskGraph.fromRecords(tasks, edges)).toThrow(DuplicateEdgeError);
+  });
+
+  it('handles empty tasks and edges', () => {
+    const tg = TaskGraph.fromRecords([], []);
+    expect(tg.raw.order).toBe(0);
+    expect(tg.raw.size).toBe(0);
+  });
+
+  it('handles tasks with no edges', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [] },
+      { id: 'b', name: 'B', dependsOn: [] },
+    ];
+    const tg = TaskGraph.fromRecords(tasks, []);
+    expect(tg.raw.order).toBe(2);
+    expect(tg.raw.size).toBe(0);
+  });
+
+  it('strips null categorical fields during TaskInput → attributes transformation', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [], risk: null, scope: 'narrow' },
+    ];
+    const edges: DependencyEdge[] = [];
+    const tg = TaskGraph.fromRecords(tasks, edges);
+    const attrs = tg.raw.getNodeAttributes('a');
+    expect(attrs.risk).toBeUndefined();
+    expect(attrs.scope).toBe('narrow');
+  });
+
+  it('does not store tags, assignee, due, created, modified on graph nodes', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [], tags: ['x'], assignee: 'bob', due: '2025-01-01', created: '2024-01-01', modified: '2024-06-01' },
+    ];
+    const edges: DependencyEdge[] = [];
+    const tg = TaskGraph.fromRecords(tasks, edges);
+    const attrs = tg.raw.getNodeAttributes('a');
+    expect((attrs as Record<string, unknown>)['tags']).toBeUndefined();
+    expect((attrs as Record<string, unknown>)['assignee']).toBeUndefined();
+  });
+
+  it('uses deterministic edge keys with -> format', () => {
+    const tasks: TaskInput[] = [
+      { id: 'setup', name: 'Setup', dependsOn: [] },
+      { id: 'build', name: 'Build', dependsOn: [] },
+    ];
+    const edges: DependencyEdge[] = [
+      { from: 'setup', to: 'build', qualityRetention: 0.95 },
+    ];
+    const tg = TaskGraph.fromRecords(tasks, edges);
+    expect(tg.raw.hasEdge('setup->build')).toBe(true);
+  });
+
+  it('supports per-edge qualityRetention values', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [] },
+      { id: 'b', name: 'B', dependsOn: [] },
+      { id: 'c', name: 'C', dependsOn: [] },
+    ];
+    const edges: DependencyEdge[] = [
+      { from: 'a', to: 'b', qualityRetention: 0.7 },
+      { from: 'a', to: 'c', qualityRetention: 0.5 },
+    ];
+    const tg = TaskGraph.fromRecords(tasks, edges);
+    expect(tg.raw.getEdgeAttributes('a->b').qualityRetention).toBe(0.7);
+    expect(tg.raw.getEdgeAttributes('a->c').qualityRetention).toBe(0.5);
+  });
+
+  it('uses default qualityRetention 0.9 when per-edge not provided', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [] },
+      { id: 'b', name: 'B', dependsOn: [] },
+    ];
+    const edges: DependencyEdge[] = [
+      { from: 'a', to: 'b' },  // no qualityRetention
+    ];
+    const tg = TaskGraph.fromRecords(tasks, edges);
+    expect(tg.raw.getEdgeAttributes('a->b').qualityRetention).toBe(0.9);
+  });
+
+  it('allows cycles at construction time (not rejected)', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [] },
+      { id: 'b', name: 'B', dependsOn: [] },
+      { id: 'c', name: 'C', dependsOn: [] },
+    ];
+    const edges: DependencyEdge[] = [
+      { from: 'a', to: 'b' },
+      { from: 'b', to: 'c' },
+      { from: 'c', to: 'a' },
+    ];
+    const tg = TaskGraph.fromRecords(tasks, edges);
+    expect(hasCycle(tg.raw)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TaskGraph.addTask() tests
+// ---------------------------------------------------------------------------
+
+describe('TaskGraph.addTask', () => {
+  it('adds a task to an empty graph', () => {
+    const tg = new TaskGraph();
+    tg.addTask('a', { name: 'Task A' });
+    expect(tg.raw.order).toBe(1);
+    expect(tg.raw.hasNode('a')).toBe(true);
+    expect(tg.raw.getNodeAttributes('a').name).toBe('Task A');
+  });
+
+  it('adds multiple tasks', () => {
+    const tg = new TaskGraph();
+    tg.addTask('a', { name: 'A' });
+    tg.addTask('b', { name: 'B' });
+    expect(tg.raw.order).toBe(2);
+  });
+
+  it('throws DuplicateNodeError if ID already exists', () => {
+    const tg = new TaskGraph();
+    tg.addTask('dup', { name: 'First' });
+    expect(() => tg.addTask('dup', { name: 'Second' })).toThrow(DuplicateNodeError);
+    expect(() => tg.addTask('dup', { name: 'Second' })).toThrow('Duplicate node: dup');
+  });
+
+  it('stores categorical attributes', () => {
+    const tg = new TaskGraph();
+    tg.addTask('a', { name: 'A', risk: 'high', scope: 'broad', impact: 'project', status: 'pending' });
+    const attrs = tg.raw.getNodeAttributes('a');
+    expect(attrs.risk).toBe('high');
+    expect(attrs.scope).toBe('broad');
+    expect(attrs.impact).toBe('project');
+    expect(attrs.status).toBe('pending');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TaskGraph.addDependency() tests
+// ---------------------------------------------------------------------------
+
+describe('TaskGraph.addDependency', () => {
+  it('adds a dependency edge with default qualityRetention', () => {
+    const tg = new TaskGraph();
+    tg.addTask('a', { name: 'A' });
+    tg.addTask('b', { name: 'B' });
+    tg.addDependency('a', 'b');
+    expect(tg.raw.size).toBe(1);
+    expect(tg.raw.hasEdge('a->b')).toBe(true);
+    expect(tg.raw.getEdgeAttributes('a->b').qualityRetention).toBe(0.9);
+  });
+
+  it('adds a dependency edge with explicit qualityRetention', () => {
+    const tg = new TaskGraph();
+    tg.addTask('a', { name: 'A' });
+    tg.addTask('b', { name: 'B' });
+    tg.addDependency('a', 'b', 0.75);
+    expect(tg.raw.getEdgeAttributes('a->b').qualityRetention).toBe(0.75);
+  });
+
+  it('uses deterministic edge key format ${prerequisite}->${dependent}', () => {
+    const tg = new TaskGraph();
+    tg.addTask('setup', { name: 'Setup' });
+    tg.addTask('build', { name: 'Build' });
+    tg.addDependency('setup', 'build');
+    expect(tg.raw.hasEdge('setup->build')).toBe(true);
+  });
+
+  it('throws TaskNotFoundError if prerequisite does not exist', () => {
+    const tg = new TaskGraph();
+    tg.addTask('b', { name: 'B' });
+    expect(() => tg.addDependency('nonexistent', 'b')).toThrow(TaskNotFoundError);
+    expect(() => tg.addDependency('nonexistent', 'b')).toThrow('Task not found: nonexistent');
+  });
+
+  it('throws TaskNotFoundError if dependent does not exist', () => {
+    const tg = new TaskGraph();
+    tg.addTask('a', { name: 'A' });
+    expect(() => tg.addDependency('a', 'nonexistent')).toThrow(TaskNotFoundError);
+  });
+
+  it('throws DuplicateEdgeError if edge already exists', () => {
+    const tg = new TaskGraph();
+    tg.addTask('a', { name: 'A' });
+    tg.addTask('b', { name: 'B' });
+    tg.addDependency('a', 'b');
+    expect(() => tg.addDependency('a', 'b')).toThrow(DuplicateEdgeError);
+    expect(() => tg.addDependency('a', 'b')).toThrow('Duplicate edge: a → b');
+  });
+
+  it('allows different edges between different node pairs', () => {
+    const tg = new TaskGraph();
+    tg.addTask('a', { name: 'A' });
+    tg.addTask('b', { name: 'B' });
+    tg.addTask('c', { name: 'C' });
+    tg.addDependency('a', 'b', 0.9);
+    tg.addDependency('a', 'c', 0.8);
+    expect(tg.raw.size).toBe(2);
+  });
+
+  it('edge direction is prerequisite → dependent', () => {
+    const tg = new TaskGraph();
+    tg.addTask('a', { name: 'A' });
+    tg.addTask('b', { name: 'B' });
+    tg.addDependency('a', 'b');
+    expect(tg.raw.source('a->b')).toBe('a');
+    expect(tg.raw.target('a->b')).toBe('b');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-method integration tests
+// ---------------------------------------------------------------------------
+
+describe('Construction methods integration', () => {
+  it('fromTasks + addTask + addDependency builds incrementally', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [] },
+      { id: 'b', name: 'B', dependsOn: ['a'] },
+    ];
+    const tg = TaskGraph.fromTasks(tasks);
+    tg.addTask('c', { name: 'C' });
+    tg.addDependency('b', 'c');
+    expect(tg.raw.order).toBe(3);
+    expect(tg.raw.size).toBe(2);
+    expect(tg.raw.hasEdge('a->b')).toBe(true);
+    expect(tg.raw.hasEdge('b->c')).toBe(true);
+  });
+
+  it('fromRecords then addDependency works', () => {
+    const tasks: TaskInput[] = [
+      { id: 'a', name: 'A', dependsOn: [] },
+      { id: 'b', name: 'B', dependsOn: [] },
+    ];
+    const edges: DependencyEdge[] = [
+      { from: 'a', to: 'b', qualityRetention: 0.8 },
+    ];
+    const tg = TaskGraph.fromRecords(tasks, edges);
+    tg.addTask('c', { name: 'C' });
+    tg.addDependency('b', 'c', 0.95);
+    expect(tg.raw.order).toBe(3);
+    expect(tg.raw.size).toBe(2);
+    expect(tg.raw.getEdgeAttributes('a->b').qualityRetention).toBe(0.8);
+    expect(tg.raw.getEdgeAttributes('b->c').qualityRetention).toBe(0.95);
+  });
+
+  it('fromJSON then addTask + addDependency works', () => {
+    const data: TaskGraphSerialized = {
+      attributes: {},
+      options: { type: 'directed', multi: false, allowSelfLoops: false },
+      nodes: [{ key: 'a', attributes: { name: 'A' } }],
+      edges: [],
+    };
+    const tg = TaskGraph.fromJSON(data);
+    tg.addTask('b', { name: 'B' });
+    tg.addDependency('a', 'b');
+    expect(tg.raw.order).toBe(2);
+    expect(tg.raw.size).toBe(1);
+  });
+
+  it('all construction methods produce deterministic edge keys', () => {
+    // fromTasks
+    const tg1 = TaskGraph.fromTasks([
+      { id: 'x', name: 'X', dependsOn: [] },
+      { id: 'y', name: 'Y', dependsOn: ['x'] },
+    ]);
+    expect(tg1.raw.hasEdge('x->y')).toBe(true);
+
+    // fromRecords
+    const tg2 = TaskGraph.fromRecords(
+      [
+        { id: 'x', name: 'X', dependsOn: [] },
+        { id: 'y', name: 'Y', dependsOn: [] },
+      ],
+      [{ from: 'x', to: 'y' }],
+    );
+    expect(tg2.raw.hasEdge('x->y')).toBe(true);
+
+    // fromJSON
+    const tg3 = TaskGraph.fromJSON({
+      attributes: {},
+      options: { type: 'directed', multi: false, allowSelfLoops: false },
+      nodes: [{ key: 'x', attributes: { name: 'X' } }, { key: 'y', attributes: { name: 'Y' } }],
+      edges: [{ key: 'x->y', source: 'x', target: 'y', attributes: {} }],
+    });
+    expect(tg3.raw.hasEdge('x->y')).toBe(true);
+
+    // addDependency
+    const tg4 = new TaskGraph();
+    tg4.addTask('x', { name: 'X' });
+    tg4.addTask('y', { name: 'Y' });
+    tg4.addDependency('x', 'y');
+    expect(tg4.raw.hasEdge('x->y')).toBe(true);
   });
 });
 
