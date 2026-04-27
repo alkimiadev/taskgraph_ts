@@ -1,7 +1,7 @@
 ---
 id: analysis/critical-path
 name: Implement criticalPath and weightedCriticalPath functions
-status: pending
+status: completed
 depends_on:
   - graph/construction
   - graph/queries
@@ -33,7 +33,22 @@ Implement `criticalPath` and `weightedCriticalPath` as standalone functions. `cr
 
 ## Notes
 
-> To be filled by implementation agent
+Implementation uses topological order + dynamic programming (longest path in DAG).
+Both functions delegate to a shared `computeLongestPath` helper that:
+1. Gets topological order (throws CircularDependencyError via `graph.topologicalOrder()`)
+2. Initializes source nodes with their weight
+3. Relaxes edges in topological order (DP: dist[v] = max(dist[u] + weight(v)))
+4. Backtracks from the node with maximum distance to reconstruct the path
+
+`criticalPath` uses `weightFn = () => 1` (unweighted).
+`weightedCriticalPath` accepts a custom weight function on `(taskId, attrs)`.
+
+## Summary
+
+Implemented `criticalPath` and `weightedCriticalPath` as standalone functions using topological-order DP.
+- Modified: `src/analysis/critical-path.ts` (full implementation, 161 lines)
+- Modified: `test/analysis.test.ts` (20 tests covering all acceptance criteria)
+- Tests: 20, all passing (462 total passing)
 
 ## Summary
 

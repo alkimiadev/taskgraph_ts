@@ -213,6 +213,12 @@ describe('bottlenecks', () => {
     expect(typeof bottlenecks).toBe('function');
   });
 
+  it('returns empty array for empty graph', () => {
+    const tg = new TaskGraph();
+    const result = bottlenecks(tg);
+    expect(result).toEqual([]);
+  });
+
   it('returns array of { taskId, score } objects', () => {
     const tg = TaskGraph.fromTasks([
       { id: 'A', name: 'Task A', dependsOn: [] },

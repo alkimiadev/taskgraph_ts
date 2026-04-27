@@ -1,7 +1,7 @@
 ---
 id: api/public-exports
 name: Wire up public API surface in src/index.ts
-status: pending
+status: completed
 depends_on:
   - graph/taskgraph-class
   - graph/construction
@@ -54,4 +54,10 @@ Wire up `src/index.ts` to re-export the full public API surface. This is the mai
 
 ## Summary
 
-> To be filled on completion
+Implemented the public API surface in `src/index.ts` using selective named re-exports instead of wildcard `export *`, ensuring no internal implementation details leak through.
+
+- Modified: `src/index.ts` — rewrote with selective named exports for all public API items
+- Modified: `src/schema/task.ts` — removed internal `Nullable` re-export (kept import for internal use)
+- Modified: `src/schema/index.ts` — switched to `export *` (kept as barrel; public API filtering is in src/index.ts)
+- Modified: `test/schema.test.ts` — removed test for `Nullable` re-export from task.ts (no longer exported)
+- Tests: 590, all passing

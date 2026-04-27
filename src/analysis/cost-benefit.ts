@@ -5,6 +5,7 @@ import type {
   WorkflowCostResult,
 } from "../schema/results.js";
 import type { TaskGraphInner } from "../graph/construction.js";
+import { TaskGraph } from "../graph/index.js";
 import { topologicalOrder } from "../graph/queries.js";
 import { resolveDefaults } from "./defaults.js";
 
@@ -149,21 +150,22 @@ export function computeEffectiveP(
  * **remain in the propagation chain** with p=1.0. Removing completed tasks from
  * propagation would worsen downstream probability estimates.
  *
- * @param graph - The graphology graph instance
+ * @param graph - The TaskGraph instance
  * @param options - Optional configuration for the analysis
  * @returns WorkflowCostResult with per-task entries and aggregate totals
  * @throws {CircularDependencyError} If the graph contains cycles
  */
 export function workflowCost(
-  graph: TaskGraphInner,
+  graph: TaskGraph,
   options?: WorkflowCostOptions,
 ): WorkflowCostResult {
+  const raw = graph.raw;
   const propagationMode = options?.propagationMode ?? "dag-propagate";
   const defaultQualityRetention = options?.defaultQualityRetention ?? 0.9;
   const includeCompleted = options?.includeCompleted ?? false;
 
   // Get topological order — throws CircularDependencyError if cyclic
-  const topoOrder = topologicalOrder(graph);
+  const topoOrder = topologicalOrder(raw);
 
   // Map of task IDs → their actual success probability for downstream propagation
   const upstreamSuccessProbs = new Map<string, number>();
@@ -172,23 +174,19 @@ export function workflowCost(
   const taskEntries: WorkflowCostResult["tasks"] = [];
 
   for (const taskId of topoOrder) {
-    const nodeAttrs = graph.getNodeAttributes(taskId);
+    const nodeAttrs = raw.getNodeAttributes(taskId);
     const resolved = resolveDefaults(nodeAttrs);
     const pIntrinsic = resolved.successProbability;
 
-    // Determine the probability to propagate downstream for this task
     let propagationP: number;
     let pEffective: number;
 
-    // Completed tasks propagate with p=1.0 when includeCompleted is false
     const isCompleted = nodeAttrs.status === "completed";
 
     if (isCompleted && !includeCompleted) {
-      // Completed + excluded: propagate p=1.0, compute pEffective normally but
-      // for propagation purposes the task is a guaranteed success
       pEffective = computeEffectiveP(
         taskId,
-        graph,
+        raw,
         upstreamSuccessProbs,
         defaultQualityRetention,
         propagationMode,
@@ -196,10 +194,9 @@ export function workflowCost(
       );
       propagationP = 1.0;
     } else {
-      // Normal task: compute pEffective and use it for downstream propagation
       pEffective = computeEffectiveP(
         taskId,
-        graph,
+        raw,
         upstreamSuccessProbs,
         defaultQualityRetention,
         propagationMode,

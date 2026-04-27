@@ -601,7 +601,7 @@ describe("workflowCost", () => {
       { id: "B", name: "Implementation", dependsOn: ["A"], risk: "medium", scope: "broad", impact: "component" },
     ]);
 
-    const result = workflowCost(graph.raw);
+    const result = workflowCost(graph);
 
     expect(result.propagationMode).toBe("dag-propagate");
 
@@ -632,7 +632,7 @@ describe("workflowCost", () => {
       { id: "B", name: "Implementation", dependsOn: ["A"], risk: "medium", scope: "broad", impact: "component" },
     ]);
 
-    const result = workflowCost(graph.raw, { propagationMode: "independent" });
+    const result = workflowCost(graph, { propagationMode: "independent" });
 
     expect(result.propagationMode).toBe("independent");
 
@@ -655,8 +655,8 @@ describe("workflowCost", () => {
       { id: "C", name: "Review", dependsOn: ["B"], risk: "low", scope: "narrow", impact: "isolated" },
     ]);
 
-    const dagResult = workflowCost(graph.raw, { propagationMode: "dag-propagate" });
-    const indepResult = workflowCost(graph.raw, { propagationMode: "independent" });
+    const dagResult = workflowCost(graph, { propagationMode: "dag-propagate" });
+    const indepResult = workflowCost(graph, { propagationMode: "independent" });
 
     // In dag-propagate, every task that has parents should have pEffective < pIntrinsic
     // (assuming qualityRetention < 1.0)
@@ -695,7 +695,7 @@ describe("workflowCost", () => {
       { id: "C", name: "Task C", dependsOn: ["B"], risk: "medium", scope: "narrow", impact: "isolated" },
     ]);
 
-    const result = workflowCost(graph.raw, { propagationMode: "dag-propagate" });
+    const result = workflowCost(graph, { propagationMode: "dag-propagate" });
 
     const taskA = result.tasks.find(t => t.taskId === "A")!;
     const taskB = result.tasks.find(t => t.taskId === "B")!;
@@ -727,7 +727,7 @@ describe("workflowCost", () => {
 
   it("diamond graph: convergence multiplies inherited quality factors", () => {
     const graph = createDiamondGraph();
-    const result = workflowCost(graph.raw);
+    const result = workflowCost(graph);
 
     const taskA = result.tasks.find(t => t.taskId === "A")!;
     const taskB = result.tasks.find(t => t.taskId === "B")!;
@@ -760,7 +760,7 @@ describe("workflowCost", () => {
       { id: "B", name: "Task B", dependsOn: ["A"], risk: "medium", scope: "narrow", impact: "isolated" },
     ]);
 
-    const result = workflowCost(graph.raw, { includeCompleted: false });
+    const result = workflowCost(graph, { includeCompleted: false });
 
     // A should not appear in the task list
     expect(result.tasks.find(t => t.taskId === "A")).toBeUndefined();
@@ -780,7 +780,7 @@ describe("workflowCost", () => {
       { id: "B", name: "Task B", dependsOn: ["A"], risk: "medium", scope: "narrow", impact: "isolated" },
     ]);
 
-    const result = workflowCost(graph.raw); // default includeCompleted=false
+    const result = workflowCost(graph); // default includeCompleted=false
 
     // A should NOT appear in the task list (default behavior)
     expect(result.tasks.find(t => t.taskId === "A")).toBeUndefined();
@@ -798,7 +798,7 @@ describe("workflowCost", () => {
       { id: "B", name: "Task B", dependsOn: ["A"], risk: "medium", scope: "narrow", impact: "isolated" },
     ]);
 
-    const result = workflowCost(graph.raw, { includeCompleted: true });
+    const result = workflowCost(graph, { includeCompleted: true });
 
     // A should appear in the task list when explicitly included
     const taskA = result.tasks.find(t => t.taskId === "A")!;
@@ -827,7 +827,7 @@ describe("workflowCost", () => {
       { id: "C", name: "Task C", dependsOn: ["B"], risk: "medium", scope: "narrow", impact: "isolated" },
     ]);
 
-    const result = workflowCost(graph.raw, { includeCompleted: false });
+    const result = workflowCost(graph, { includeCompleted: false });
 
     // A should not be in results
     expect(result.tasks.find(t => t.taskId === "A")).toBeUndefined();
@@ -852,7 +852,7 @@ describe("workflowCost", () => {
       { id: "B", name: "Task B", dependsOn: [], risk: "medium", scope: "narrow", impact: "isolated", status: "blocked" },
     ]);
 
-    const result = workflowCost(graph.raw, { includeCompleted: false });
+    const result = workflowCost(graph, { includeCompleted: false });
 
     // Both failed and blocked tasks should be included
     expect(result.tasks.find(t => t.taskId === "A")).toBeDefined();
@@ -861,12 +861,12 @@ describe("workflowCost", () => {
 
   it("throws CircularDependencyError for cyclic graph", () => {
     const graph = createCyclicGraph();
-    expect(() => workflowCost(graph.raw)).toThrow(CircularDependencyError);
+    expect(() => workflowCost(graph)).toThrow(CircularDependencyError);
   });
 
   it("handles empty graph", () => {
     const graph = new TaskGraph();
-    const result = workflowCost(graph.raw);
+    const result = workflowCost(graph);
 
     expect(result.tasks).toEqual([]);
     expect(result.totalEv).toBe(0);
@@ -879,7 +879,7 @@ describe("workflowCost", () => {
       { id: "A", name: "Task A", dependsOn: [], risk: "medium", scope: "narrow", impact: "isolated" },
     ]);
 
-    const result = workflowCost(graph.raw);
+    const result = workflowCost(graph);
 
     expect(result.tasks).toHaveLength(1);
     expect(result.tasks[0]!.taskId).toBe("A");
@@ -896,7 +896,7 @@ describe("workflowCost", () => {
     tg.raw.addEdgeWithKey("A->B", "A", "B", {});
 
     // With defaultQualityRetention = 1.0, should behave like independent model
-    const result = workflowCost(tg.raw, { defaultQualityRetention: 1.0 });
+    const result = workflowCost(tg, { defaultQualityRetention: 1.0 });
 
     const taskB = result.tasks.find(t => t.taskId === "B")!;
     // inheritedQuality = parentP + (1-parentP) * 1.0 = 1.0
@@ -916,7 +916,7 @@ describe("workflowCost", () => {
       ]
     );
 
-    const result = workflowCost(graph.raw); // default qualityRetention=0.9
+    const result = workflowCost(graph); // default qualityRetention=0.9
     const taskB = result.tasks.find(t => t.taskId === "B")!;
 
     // Per-edge qualityRetention = 0.5 overrides default 0.9
@@ -932,7 +932,7 @@ describe("workflowCost", () => {
       { id: "C", name: "Task C", dependsOn: ["B"], risk: "medium", scope: "narrow", impact: "isolated" },
     ]);
 
-    const result = workflowCost(graph.raw, { limit: 2 });
+    const result = workflowCost(graph, { limit: 2 });
 
     expect(result.tasks).toHaveLength(2);
     // limit only affects the result list, not propagation
@@ -946,7 +946,7 @@ describe("workflowCost", () => {
       { id: "B", name: "Task B", dependsOn: ["A"], risk: "medium", scope: "narrow", impact: "isolated" },
     ]);
 
-    const result = workflowCost(graph.raw);
+    const result = workflowCost(graph);
     for (const task of result.tasks) {
       expect(typeof task.pIntrinsic).toBe("number");
       expect(typeof task.pEffective).toBe("number");
@@ -965,7 +965,7 @@ describe("workflowCost", () => {
       { id: "B", name: "Task B", dependsOn: [], risk: "medium", scope: "narrow", impact: "isolated" },
     ]);
 
-    const result = workflowCost(graph.raw, { propagationMode: "independent" });
+    const result = workflowCost(graph, { propagationMode: "independent" });
 
     // Two independent tasks with medium risk, narrow scope, isolated impact
     // p=0.80, scopeCost=2.0, impactWeight=1.0
@@ -981,7 +981,7 @@ describe("workflowCost", () => {
       { id: "A", name: "Task A", dependsOn: [] },
     ]);
 
-    const result = workflowCost(graph.raw);
+    const result = workflowCost(graph);
 
     const taskA = result.tasks[0]!;
     // defaults: risk=medium (p=0.80), scope=narrow (costEstimate=2.0), impact=isolated (weight=1.0)
@@ -998,7 +998,7 @@ describe("workflowCost", () => {
       { id: "C", name: "Task C", dependsOn: ["B"], risk: "low", scope: "narrow", impact: "isolated" },
     ]);
 
-    const result = workflowCost(graph.raw, { propagationMode: "independent" });
+    const result = workflowCost(graph, { propagationMode: "independent" });
 
     for (const task of result.tasks) {
       expect(task.pEffective).toBeCloseTo(task.pIntrinsic);
@@ -1013,8 +1013,8 @@ describe("workflowCost", () => {
       { id: "implementation", name: "Implementation", dependsOn: ["planning"], risk: "medium", scope: "broad", impact: "component" },
     ]);
 
-    const dagResult = workflowCost(graph.raw, { propagationMode: "dag-propagate" });
-    const indepResult = workflowCost(graph.raw, { propagationMode: "independent" });
+    const dagResult = workflowCost(graph, { propagationMode: "dag-propagate" });
+    const indepResult = workflowCost(graph, { propagationMode: "independent" });
 
     const dagImpl = dagResult.tasks.find(t => t.taskId === "implementation")!;
     const indepImpl = indepResult.tasks.find(t => t.taskId === "implementation")!;
@@ -1039,8 +1039,8 @@ describe("workflowCost", () => {
       { id: "B", name: "Task B", dependsOn: [], risk: "medium", scope: "narrow", impact: "isolated" },
     ]);
 
-    const dagResult = workflowCost(graph.raw, { propagationMode: "dag-propagate" });
-    const indepResult = workflowCost(graph.raw, { propagationMode: "independent" });
+    const dagResult = workflowCost(graph, { propagationMode: "dag-propagate" });
+    const indepResult = workflowCost(graph, { propagationMode: "independent" });
 
     // No dependencies → no propagation → same result
     expect(dagResult.tasks[0]!.pEffective).toBeCloseTo(indepResult.tasks[0]!.pEffective);
@@ -1055,13 +1055,13 @@ describe("workflowCost", () => {
 describe("workflowCost cycle detection", () => {
   it("throws CircularDependencyError when graph has cycles", () => {
     const graph = createCyclicGraph();
-    expect(() => workflowCost(graph.raw)).toThrow(CircularDependencyError);
+    expect(() => workflowCost(graph)).toThrow(CircularDependencyError);
   });
 
   it("CircularDependencyError contains cycle information", () => {
     const graph = createCyclicGraph();
     try {
-      workflowCost(graph.raw);
+      workflowCost(graph);
       expect.fail("Should have thrown CircularDependencyError");
     } catch (error) {
       expect(error).toBeInstanceOf(CircularDependencyError);

@@ -420,6 +420,11 @@ describe('validateGraph', () => {
     expect(danglingErrors).toHaveLength(0);
   });
 
+  // Note: dangling-reference detection (lines 78-93 in validation.ts) is unreachable
+  // through the public API because graphology's mergeEdge auto-creates missing nodes
+  // and addEdgeWithKey rejects non-existent source/target. The code is a defensive
+  // guard for direct raw graph mutation that bypasses TaskGraph invariants.
+
   it('detects multiple independent cycles', () => {
     // Create a graph with two independent cycles
     const data: TaskGraphSerialized = {
