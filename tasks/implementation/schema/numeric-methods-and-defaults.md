@@ -1,7 +1,7 @@
 ---
 id: schema/numeric-methods-and-defaults
 name: Implement categorical numeric functions and resolveDefaults
-status: pending
+status: completed
 depends_on:
   - schema/enums
   - schema/graph-schemas
@@ -41,8 +41,12 @@ Implement the standalone numeric functions that map categorical enum values to t
 
 ## Notes
 
-> To be filled by implementation agent
+Floating-point comparison in tests uses `toBeCloseTo` for riskWeight and successProbability due to IEEE 754 precision (e.g., 1 - 0.98 = 0.020000000000000018).
 
 ## Summary
 
-> To be filled on completion
+Implemented categorical numeric functions and resolveDefaults.
+- Modified: `src/analysis/defaults.ts` — 5 standalone numeric functions (scopeCostEstimate, scopeTokenEstimate, riskSuccessProbability, riskWeight, impactWeight) + resolveDefaults
+- Modified: `src/schema/results.ts` — added ResolvedTaskAttributes TypeBox schema and type alias
+- Created: `test/defaults.test.ts` — 30 tests covering every enum value mapping and resolveDefaults with mixed null/present inputs
+- Tests: 30 new, all 218 total passing; lint clean

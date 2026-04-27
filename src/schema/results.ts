@@ -1,4 +1,18 @@
-import { Type, type Static } from "@alkdev/typebox";
+import { Type, type Static, type TSchema } from "@alkdev/typebox";
+import {
+  TaskScopeEnum,
+  TaskRiskEnum,
+  TaskImpactEnum,
+  TaskLevelEnum,
+  TaskPriorityEnum,
+  TaskStatusEnum,
+} from "./enums.js";
+
+// --- Nullable helper (also exported from enums.ts, duplicated here for schema locality) ---
+
+/** Wrap a schema to also accept `null`. */
+const Nullable = <T extends TSchema>(schema: T) =>
+  Type.Union([schema, Type.Null()]);
 
 // --- RiskPathResult ---
 
@@ -97,3 +111,31 @@ export const RiskDistributionResult = Type.Object({
 });
 /** Distribution of tasks by risk level */
 export type RiskDistributionResult = Static<typeof RiskDistributionResult>;
+
+// --- ResolvedTaskAttributes ---
+
+/**
+ * The output of `resolveDefaults` — all categorical fields resolved to their
+ * numeric equivalents for use in analysis.
+ *
+ * Categorical fields that have defaults (scope, risk, impact) are no longer
+ * optional — `resolveDefaults` fills them in. Label-only fields (level,
+ * priority, status) remain nullable since they have no meaningful default.
+ */
+export const ResolvedTaskAttributes = Type.Object({
+  name: Type.String(),
+  scope: TaskScopeEnum,
+  risk: TaskRiskEnum,
+  impact: TaskImpactEnum,
+  level: Nullable(TaskLevelEnum),
+  priority: Nullable(TaskPriorityEnum),
+  status: Nullable(TaskStatusEnum),
+  // Numeric equivalents (always present after resolution):
+  costEstimate: Type.Number(),
+  tokenEstimate: Type.Number(),
+  successProbability: Type.Number(),
+  riskWeight: Type.Number(),
+  impactWeight: Type.Number(),
+});
+/** Inferred type for {@link ResolvedTaskAttributes} schema. */
+export type ResolvedTaskAttributes = Static<typeof ResolvedTaskAttributes>;
