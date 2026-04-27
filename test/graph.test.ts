@@ -211,6 +211,188 @@ describe('TaskGraph class', () => {
       expect(typeof mod.TaskGraph).toBe('function');
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // export() / toJSON() tests (acceptance criteria from graph/export task)
+  // ---------------------------------------------------------------------------
+
+  describe('export()', () => {
+    it('returns an empty TaskGraphSerialized for an empty graph', () => {
+      const tg = new TaskGraph();
+      const data = tg.export();
+      expect(data.options).toEqual({ type: 'directed', multi: false, allowSelfLoops: false });
+      expect(data.attributes).toEqual({});
+      expect(data.nodes).toEqual([]);
+      expect(data.edges).toEqual([]);
+    });
+
+    it('includes all node attributes in the exported data', () => {
+      const data: TaskGraphSerialized = {
+        attributes: {},
+        options: { type: 'directed', multi: false, allowSelfLoops: false },
+        nodes: [
+          { key: 'a', attributes: { name: 'Task A', risk: 'high', scope: 'broad' } },
+          { key: 'b', attributes: { name: 'Task B' } },
+        ],
+        edges: [],
+      };
+      const tg = new TaskGraph(data);
+      const exported = tg.export();
+
+      expect(exported.nodes).toHaveLength(2);
+      const nodeA = exported.nodes.find(n => n.key === 'a');
+      expect(nodeA).toBeDefined();
+      expect(nodeA!.attributes.name).toBe('Task A');
+      expect(nodeA!.attributes.risk).toBe('high');
+      expect(nodeA!.attributes.scope).toBe('broad');
+    });
+
+    it('includes edge attributes including qualityRetention', () => {
+      const data: TaskGraphSerialized = {
+        attributes: {},
+        options: { type: 'directed', multi: false, allowSelfLoops: false },
+        nodes: [
+          { key: 'a', attributes: { name: 'Task A' } },
+          { key: 'b', attributes: { name: 'Task B' } },
+        ],
+        edges: [
+          { key: 'a->b', source: 'a', target: 'b', attributes: { qualityRetention: 0.85 } },
+        ],
+      };
+      const tg = new TaskGraph(data);
+      const exported = tg.export();
+
+      expect(exported.edges).toHaveLength(1);
+      expect(exported.edges[0].key).toBe('a->b');
+      expect(exported.edges[0].source).toBe('a');
+      expect(exported.edges[0].target).toBe('b');
+      expect(exported.edges[0].attributes.qualityRetention).toBe(0.85);
+    });
+
+    it('round-trips through fromJSON: empty graph', () => {
+      const tg = new TaskGraph();
+      const exported = tg.export();
+      const restored = TaskGraph.fromJSON(exported);
+      expect(restored.raw.order).toBe(0);
+      expect(restored.raw.size).toBe(0);
+    });
+
+    it('round-trips through fromJSON: graph with nodes and edges', () => {
+      const original: TaskGraphSerialized = {
+        attributes: {},
+        options: { type: 'directed', multi: false, allowSelfLoops: false },
+        nodes: [
+          { key: 'x', attributes: { name: 'Task X', risk: 'medium', impact: 'component' } },
+          { key: 'y', attributes: { name: 'Task Y', scope: 'narrow' } },
+          { key: 'z', attributes: { name: 'Task Z' } },
+        ],
+        edges: [
+          { key: 'x->y', source: 'x', target: 'y', attributes: { qualityRetention: 0.9 } },
+          { key: 'y->z', source: 'y', target: 'z', attributes: { qualityRetention: 0.75 } },
+        ],
+      };
+      const tg = new TaskGraph(original);
+      const exported = tg.export();
+      const restored = TaskGraph.fromJSON(exported);
+
+      // Same structure
+      expect(restored.raw.order).toBe(3);
+      expect(restored.raw.size).toBe(2);
+
+      // Same node attributes
+      expect(restored.raw.getNodeAttributes('x')).toEqual({ name: 'Task X', risk: 'medium', impact: 'component' });
+      expect(restored.raw.getNodeAttributes('y')).toEqual({ name: 'Task Y', scope: 'narrow' });
+      expect(restored.raw.getNodeAttributes('z')).toEqual({ name: 'Task Z' });
+
+      // Same edge attributes
+      expect(restored.raw.getEdgeAttributes('x->y').qualityRetention).toBe(0.9);
+      expect(restored.raw.getEdgeAttributes('y->z').qualityRetention).toBe(0.75);
+    });
+
+    it('round-trips through fromJSON: re-export matches original export', () => {
+      const original: TaskGraphSerialized = {
+        attributes: {},
+        options: { type: 'directed', multi: false, allowSelfLoops: false },
+        nodes: [
+          { key: 'a', attributes: { name: 'Alpha', risk: 'high' } },
+          { key: 'b', attributes: { name: 'Beta' } },
+        ],
+        edges: [
+          { key: 'a->b', source: 'a', target: 'b', attributes: { qualityRetention: 0.9 } },
+        ],
+      };
+      const tg = new TaskGraph(original);
+      const first = tg.export();
+      const restored = TaskGraph.fromJSON(first);
+      const second = restored.export();
+
+      expect(second.nodes).toEqual(first.nodes);
+      expect(second.edges).toEqual(first.edges);
+    });
+  });
+
+  describe('toJSON()', () => {
+    it('returns the same result as export()', () => {
+      const data: TaskGraphSerialized = {
+        attributes: {},
+        options: { type: 'directed', multi: false, allowSelfLoops: false },
+        nodes: [
+          { key: 'a', attributes: { name: 'Task A' } },
+          { key: 'b', attributes: { name: 'Task B' } },
+        ],
+        edges: [
+          { key: 'a->b', source: 'a', target: 'b', attributes: { qualityRetention: 0.9 } },
+        ],
+      };
+      const tg = new TaskGraph(data);
+      const exported = tg.export();
+      const json = tg.toJSON();
+      expect(json).toEqual(exported);
+    });
+
+    it('enables JSON.stringify(graph) to produce serialized output', () => {
+      const data: TaskGraphSerialized = {
+        attributes: {},
+        options: { type: 'directed', multi: false, allowSelfLoops: false },
+        nodes: [
+          { key: 'a', attributes: { name: 'Task A' } },
+        ],
+        edges: [],
+      };
+      const tg = new TaskGraph(data);
+      const stringified = JSON.stringify(tg);
+      const parsed = JSON.parse(stringified);
+
+      expect(parsed.options).toEqual({ type: 'directed', multi: false, allowSelfLoops: false });
+      expect(parsed.nodes).toHaveLength(1);
+      expect(parsed.nodes[0].key).toBe('a');
+      expect(parsed.nodes[0].attributes.name).toBe('Task A');
+    });
+
+    it('JSON.stringify round-trip produces an equivalent graph', () => {
+      const original: TaskGraphSerialized = {
+        attributes: {},
+        options: { type: 'directed', multi: false, allowSelfLoops: false },
+        nodes: [
+          { key: 'p', attributes: { name: 'Parent', risk: 'low' } },
+          { key: 'q', attributes: { name: 'Child', scope: 'single' } },
+        ],
+        edges: [
+          { key: 'p->q', source: 'p', target: 'q', attributes: { qualityRetention: 0.95 } },
+        ],
+      };
+      const tg = new TaskGraph(original);
+      const json = JSON.stringify(tg);
+      const parsed = JSON.parse(json) as TaskGraphSerialized;
+      const restored = TaskGraph.fromJSON(parsed);
+
+      expect(restored.raw.order).toBe(2);
+      expect(restored.raw.size).toBe(1);
+      expect(restored.raw.getNodeAttributes('p').risk).toBe('low');
+      expect(restored.raw.getNodeAttributes('q').scope).toBe('single');
+      expect(restored.raw.getEdgeAttributes('p->q').qualityRetention).toBe(0.95);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

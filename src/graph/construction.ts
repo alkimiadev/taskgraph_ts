@@ -130,4 +130,33 @@ export class TaskGraph {
     graph._graph.import(data);
     return graph;
   }
+
+  // ---------------------------------------------------------------------------
+  // Export methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Export the graph as a serialized object in graphology native JSON format.
+   *
+   * The returned object conforms to the `TaskGraphSerialized` schema and
+   * includes all node attributes (name, scope, risk, etc.) and edge attributes
+   * (including `qualityRetention`).
+   *
+   * The output can be passed to `TaskGraph.fromJSON()` for a round-trip.
+   *
+   * @returns A `TaskGraphSerialized` object representing this graph
+   */
+  export(): TaskGraphSerialized {
+    return this._graph.export() as TaskGraphSerialized;
+  }
+
+  /**
+   * Alias for `export()`. Enables `JSON.stringify(graph)` to produce
+   * the serialized graph representation automatically.
+   *
+   * @returns A `TaskGraphSerialized` object representing this graph
+   */
+  toJSON(): TaskGraphSerialized {
+    return this.export();
+  }
 }
