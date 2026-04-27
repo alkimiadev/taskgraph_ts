@@ -1,7 +1,7 @@
 ---
 id: analysis/bottlenecks
 name: Implement bottlenecks analysis function
-status: pending
+status: completed
 depends_on:
   - graph/construction
   - graph/queries
@@ -17,12 +17,12 @@ Implement `bottlenecks(graph: TaskGraph): Array<{ taskId: string; score: number 
 
 ## Acceptance Criteria
 
-- [ ] `bottlenecks` returns array of `{ taskId, score }` objects sorted by score descending
-- [ ] Uses `graphology-metrics` betweenness centrality computation
-- [ ] Normalized scores (0.0–1.0 range)
-- [ ] Tasks with score 0 are still included (they're not bottlenecks)
-- [ ] Works on disconnected graphs (betweenness is 0 for disconnected components)
-- [ ] Unit tests: linear chain (middle node has highest betweenness), star graph (center has highest), independent nodes (all zero)
+- [x] `bottlenecks` returns array of `{ taskId, score }` objects sorted by score descending
+- [x] Uses `graphology-metrics` betweenness centrality computation
+- [x] Normalized scores (0.0–1.0 range)
+- [x] Tasks with score 0 are still included (they're not bottlenecks)
+- [x] Works on disconnected graphs (betweenness is 0 for disconnected components)
+- [x] Unit tests: linear chain (middle node has highest betweenness), star graph (center has highest), independent nodes (all zero)
 
 ## References
 
@@ -31,8 +31,11 @@ Implement `bottlenecks(graph: TaskGraph): Array<{ taskId: string; score: number 
 
 ## Notes
 
-> To be filled by implementation agent
+Graphology-metrics betweenness centrality throws on empty graphs (mnemonist FixedStack requires positive capacity). Handled by returning empty array when `graph.raw.order === 0`.
 
 ## Summary
 
-> To be filled on completion
+Implemented `bottlenecks(graph: TaskGraph): BottleneckResult[]` using `graphology-metrics` betweenness centrality with `normalized: true`.
+- Created: `src/analysis/bottleneck.ts` (bottlenecks function + BottleneckResult interface)
+- Modified: `test/analysis.test.ts` (replaced placeholder with 20 tests covering all acceptance criteria)
+- Tests: 20, all passing (linear chain, star graph, independent nodes, disconnected graph, diamond, empty graph, single node, sorted output, normalized scores)
