@@ -1,7 +1,7 @@
 ---
 id: graph/subgraph-and-validation
 name: Implement TaskGraph subgraph and validation methods
-status: pending
+status: completed
 depends_on:
   - graph/taskgraph-class
   - graph/queries
@@ -47,8 +47,20 @@ Per [errors-validation.md](../../../docs/architecture/errors-validation.md), val
 
 ## Notes
 
-> To be filled by implementation agent
+Implementation follows the existing codebase pattern of standalone functions + class method delegation (like queries.ts and mutation.ts). The validation logic lives in `src/graph/validation.ts` with class methods on TaskGraph delegating to the standalone functions.
 
 ## Summary
 
-> To be filled on completion
+Implemented subgraph() method and three validation methods (validateSchema, validateGraph, validate) on TaskGraph.
+
+- Created: `src/graph/validation.ts` (standalone validateSchema, validateGraph, validate functions)
+- Modified: `src/graph/construction.ts` (added subgraph, validateSchema, validateGraph, validate methods + import for graphology-operators subgraph)
+- Modified: `src/graph/index.ts` (added export of validation module)
+- Modified: `src/error/index.ts` (added ValidationError, GraphValidationError, AnyValidationError types)
+- Created: `test/subgraph-and-validation.test.ts` (43 tests, all passing)
+
+Key design decisions:
+- `subgraph()` uses `graphology-operators.subgraph` with a Set of filtered node keys, which naturally implements ADR-007 (internal-only edges)
+- Validation follows the existing pattern: standalone functions + class method delegation
+- `ValidationError` and `GraphValidationError` are defined as interfaces in `src/error/index.ts`, with `AnyValidationError` union type for the combined `validate()` return
+- All 486 tests pass (443 existing + 43 new)
