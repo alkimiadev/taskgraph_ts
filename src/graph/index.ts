@@ -1,5 +1,5 @@
 // Graph submodule — TaskGraph class and operations
 
-export { TaskGraph } from './construction.js';
+export { TaskGraph, type TaskGraphInner } from './construction.js';
 export * from './queries.js';
 export * from './mutation.js';
