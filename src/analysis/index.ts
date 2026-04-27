@@ -6,3 +6,4 @@ export * from './risk.js';
 export * from './cost-benefit.js';
 export * from './decompose.js';
 export * from './defaults.js';
+export * from './parallel-groups.js';
