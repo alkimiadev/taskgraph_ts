@@ -1,5 +1,10 @@
 // YAML/frontmatter parsing + typebox validation
 
+import { parse as yamlParse } from 'yaml';
+import { Value } from '@alkdev/typebox/value';
+import { TaskInput, type TaskInput as TaskInputType } from '../schema/task.js';
+import { InvalidInputError } from '../error/index.js';
+
 /**
  * Split a markdown string with `---`-delimited YAML frontmatter into its
  * data and content parts.
@@ -73,9 +78,60 @@ export function splitFrontmatter(
   return null;
 }
 
-export function parseFrontmatter(_input: string): unknown {
-  // Stub — implementation pending
-  return {};
+/**
+ * Parse a markdown string with `---`-delimited YAML frontmatter into a
+ * validated `TaskInput` object.
+ *
+ * Pipeline:
+ * 1. Call `splitFrontmatter()` to extract the YAML data string
+ * 2. Throw `InvalidInputError` if no valid frontmatter found
+ * 3. Parse YAML string with `yaml.parse()` (YAML 1.2 — no type coercion)
+ * 4. Run `Value.Clean()` to strip unknown properties from untrusted input
+ * 5. Run `Value.Check()` — if fails, collect errors via `Value.Errors()` and
+ *    throw `InvalidInputError` with field-level details
+ * 6. Return the validated `TaskInput`
+ *
+ * @throws {InvalidInputError} When frontmatter is missing, YAML is invalid,
+ *         or schema validation fails
+ */
+export function parseFrontmatter(markdown: string): TaskInputType {
+  // Step 1: Split frontmatter
+  const split = splitFrontmatter(markdown);
+  if (split === null) {
+    throw new InvalidInputError('', 'No valid frontmatter found');
+  }
+
+  // Step 3: Parse YAML (YAML 1.2 by default from the `yaml` package)
+  let parsed: unknown;
+  try {
+    parsed = yamlParse(split.data);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new InvalidInputError('', `YAML parse error: ${message}`);
+  }
+
+  // Guard: parsed YAML must be a plain object (not a string, number, null, etc.)
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new InvalidInputError('', 'YAML frontmatter must be a mapping (object), not a scalar or array');
+  }
+
+  // Step 4: Clean — strip unknown properties from untrusted input
+  const cleaned = Value.Clean(TaskInput, parsed);
+
+  // Step 5: Validate — check against schema, collect errors if invalid
+  if (!Value.Check(TaskInput, cleaned)) {
+    // Collect all field-level errors from TypeBox's Value.Errors()
+    const errors = [...Value.Errors(TaskInput, cleaned)];
+    // Use the first error to populate InvalidInputError (provides most actionable detail)
+    if (errors.length > 0) {
+      throw InvalidInputError.fromTypeBoxError(errors[0]!);
+    }
+    // Fallback if no errors were reported (shouldn't happen, but defensive)
+    throw new InvalidInputError('', 'Schema validation failed');
+  }
+
+  // Step 6: Return validated TaskInput
+  return cleaned as TaskInputType;
 }
 
 export function parseTaskFile(_input: string): unknown {
