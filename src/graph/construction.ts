@@ -2,6 +2,12 @@
 
 import { DirectedGraph } from 'graphology';
 import type { TaskGraphNodeAttributes, TaskGraphEdgeAttributes, TaskGraphSerialized } from '../schema/index.js';
+import {
+  removeTask as _removeTask,
+  removeDependency as _removeDependency,
+  updateTask as _updateTask,
+  updateEdgeAttributes as _updateEdgeAttributes,
+} from './mutation.js';
 
 /**
  * Internal graph type alias for the graphology DirectedGraph with our attribute types.
@@ -77,6 +83,66 @@ export class TaskGraph {
    */
   protected _edgeKey(source: string, target: string): string {
     return `${source}->${target}`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mutation methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Remove a task (node) from the graph.
+   *
+   * No-op if the node doesn't exist. Graphology automatically removes
+   * all edges attached to the dropped node (cascade edge removal).
+   *
+   * @param id - The task ID to remove
+   */
+  removeTask(id: string): void {
+    _removeTask(this._graph, id);
+  }
+
+  /**
+   * Remove a dependency (edge) from the graph.
+   *
+   * No-op if the edge doesn't exist. Uses the deterministic edge key
+   * `${prerequisite}->${dependent}` to identify the edge (per ADR-006).
+   *
+   * @param prerequisite - Source (prerequisite) task ID
+   * @param dependent - Target (dependent) task ID
+   */
+  removeDependency(prerequisite: string, dependent: string): void {
+    _removeDependency(this._graph, prerequisite, dependent);
+  }
+
+  /**
+   * Update a task's attributes with a partial merge.
+   *
+   * Throws `TaskNotFoundError` if the task ID doesn't exist.
+   * Uses a shallow merge of the provided attributes into the existing
+   * node attributes.
+   *
+   * @param id - The task ID to update
+   * @param attributes - Partial attributes to merge into the existing node
+   * @throws {TaskNotFoundError} If the task ID doesn't exist in the graph
+   */
+  updateTask(id: string, attributes: Partial<TaskGraphNodeAttributes>): void {
+    _updateTask(this._graph, id, attributes);
+  }
+
+  /**
+   * Update an edge's attributes with a partial merge.
+   *
+   * Throws `TaskNotFoundError` if the edge doesn't exist.
+   * Uses the deterministic edge key `${prerequisite}->${dependent}` to
+   * identify the edge (per ADR-006).
+   *
+   * @param prerequisite - Source (prerequisite) task ID
+   * @param dependent - Target (dependent) task ID
+   * @param attrs - Partial edge attributes to merge into the existing edge
+   * @throws {TaskNotFoundError} If the edge doesn't exist in the graph
+   */
+  updateEdgeAttributes(prerequisite: string, dependent: string, attrs: Partial<TaskGraphEdgeAttributes>): void {
+    _updateEdgeAttributes(this._graph, prerequisite, dependent, attrs);
   }
 
   // ---------------------------------------------------------------------------
