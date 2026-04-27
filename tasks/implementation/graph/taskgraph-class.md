@@ -1,7 +1,7 @@
 ---
 id: graph/taskgraph-class
 name: Implement TaskGraph class skeleton with graphology DirectedGraph
-status: pending
+status: completed
 depends_on:
   - schema/enums
   - schema/input-schemas
@@ -20,15 +20,15 @@ Create the `TaskGraph` class in `src/graph/index.ts` that wraps `graphology.Dire
 
 ## Acceptance Criteria
 
-- [ ] `src/graph/index.ts` exports `TaskGraph` class
-- [ ] Constructor creates an internal `graphology.DirectedGraph` with options `{ type: 'directed', multi: false, allowSelfLoops: false }`
-- [ ] `get raw(): Graph` returns the underlying graphology instance
-- [ ] Constructor accepts optional `TaskGraphSerialized` for initializing from serialized data (delegates to `fromJSON` pattern)
-- [ ] Class stores edge key format: `${source}->${target}` (per ADR-006)
-- [ ] No parallel edges constraint enforced by `multi: false` graph option
-- [ ] No self-loops constraint enforced by `allowSelfLoops: false` graph option
-- [ ] Internal `_edgeKey(source, target): string` method producing deterministic keys
-- [ ] Re-exported from `src/index.ts`
+- [x] `src/graph/index.ts` exports `TaskGraph` class
+- [x] Constructor creates an internal `graphology.DirectedGraph` with options `{ type: 'directed', multi: false, allowSelfLoops: false }`
+- [x] `get raw(): Graph` returns the underlying graphology instance
+- [x] Constructor accepts optional `TaskGraphSerialized` for initializing from serialized data (delegates to `fromJSON` pattern)
+- [x] Class stores edge key format: `${source}->${target}` (per ADR-006)
+- [x] No parallel edges constraint enforced by `multi: false` graph option
+- [x] No self-loops constraint enforced by `allowSelfLoops: false` graph option
+- [x] Internal `_edgeKey(source, target): string` method producing deterministic keys
+- [x] Re-exported from `src/index.ts`
 
 ## References
 
@@ -38,8 +38,12 @@ Create the `TaskGraph` class in `src/graph/index.ts` that wraps `graphology.Dire
 
 ## Notes
 
-> To be filled by implementation agent
+Implementation placed in `src/graph/construction.ts` (as per existing module structure). The class is re-exported via `src/graph/index.ts` and `src/index.ts`. Static methods `fromTasks` and `fromRecords` are stubs (throw) pending dependent task implementation. `fromJSON` is fully implemented since the constructor needs it for deserialization.
 
 ## Summary
 
-> To be filled on completion
+Implemented TaskGraph class skeleton wrapping graphology DirectedGraph.
+- Modified: `src/graph/construction.ts` (full class with constructor, raw getter, _edgeKey, fromJSON, stubs for fromTasks/fromRecords)
+- Modified: `src/graph/index.ts` (added TaskGraphInner type export)
+- Modified: `test/graph.test.ts` (added 20 new tests for class skeleton, preserved 22 existing fixture tests)
+- Tests: 42 in graph.test.ts (all passing), 204 total across suite (all passing)
