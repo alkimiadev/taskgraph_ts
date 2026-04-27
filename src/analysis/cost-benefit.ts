@@ -160,7 +160,7 @@ export function workflowCost(
 ): WorkflowCostResult {
   const propagationMode = options?.propagationMode ?? "dag-propagate";
   const defaultQualityRetention = options?.defaultQualityRetention ?? 0.9;
-  const includeCompleted = options?.includeCompleted ?? true;
+  const includeCompleted = options?.includeCompleted ?? false;
 
   // Get topological order — throws CircularDependencyError if cyclic
   const topoOrder = topologicalOrder(graph);

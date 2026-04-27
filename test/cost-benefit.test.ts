@@ -774,15 +774,33 @@ describe("workflowCost", () => {
     expect(taskB.pIntrinsic).toBeCloseTo(0.80);
   });
 
-  it("includes completed tasks when includeCompleted=true (default)", () => {
+  it("excludes completed tasks by default (includeCompleted defaults to false)", () => {
     const graph = TaskGraph.fromTasks([
       { id: "A", name: "Task A", dependsOn: [], risk: "high", scope: "narrow", impact: "isolated", status: "completed" },
       { id: "B", name: "Task B", dependsOn: ["A"], risk: "medium", scope: "narrow", impact: "isolated" },
     ]);
 
-    const result = workflowCost(graph.raw); // default includeCompleted=true
+    const result = workflowCost(graph.raw); // default includeCompleted=false
 
-    // A should appear in the task list
+    // A should NOT appear in the task list (default behavior)
+    expect(result.tasks.find(t => t.taskId === "A")).toBeUndefined();
+
+    // B's propagation uses p=1.0 for A (completed)
+    // inheritedFromA = 1.0 + (1-1.0)*0.9 = 1.0
+    // pEffective_B = 0.80 * 1.0 = 0.80
+    const taskB = result.tasks.find(t => t.taskId === "B")!;
+    expect(taskB.pEffective).toBeCloseTo(0.80);
+  });
+
+  it("includes completed tasks when includeCompleted=true", () => {
+    const graph = TaskGraph.fromTasks([
+      { id: "A", name: "Task A", dependsOn: [], risk: "high", scope: "narrow", impact: "isolated", status: "completed" },
+      { id: "B", name: "Task B", dependsOn: ["A"], risk: "medium", scope: "narrow", impact: "isolated" },
+    ]);
+
+    const result = workflowCost(graph.raw, { includeCompleted: true });
+
+    // A should appear in the task list when explicitly included
     const taskA = result.tasks.find(t => t.taskId === "A")!;
     expect(taskA).toBeDefined();
 
