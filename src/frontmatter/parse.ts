@@ -134,12 +134,3 @@ export function parseFrontmatter(markdown: string): TaskInputType {
   return cleaned as TaskInputType;
 }
 
-export function parseTaskFile(_input: string): unknown {
-  // Stub — implementation pending
-  return {};
-}
-
-export function parseTaskDirectory(_dir: string): unknown[] {
-  // Stub — implementation pending
-  return [];
-}
