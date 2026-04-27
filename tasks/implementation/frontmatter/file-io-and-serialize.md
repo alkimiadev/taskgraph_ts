@@ -1,7 +1,7 @@
 ---
 id: frontmatter/file-io-and-serialize
 name: Implement parseTaskFile, parseTaskDirectory, and serializeFrontmatter
-status: pending
+status: completed
 depends_on:
   - frontmatter/parsing
   - schema/input-schemas
@@ -22,23 +22,23 @@ Per [frontmatter.md](../../../docs/architecture/frontmatter.md):
 
 ## Acceptance Criteria
 
-- [ ] `parseTaskFile(filePath: string): Promise<TaskInput>`:
+- [x] `parseTaskFile(filePath: string): Promise<TaskInput>`:
   - Reads file using `node:fs/promises.readFile`
   - Delegates to `parseFrontmatter` for parsing and validation
   - Throws underlying Node.js error for I/O failures (ENOENT, EACCES, etc.)
-- [ ] `parseTaskDirectory(dirPath: string): Promise<TaskInput[]>`:
-  - Recursive directory scanning via `node:fs/promises.readdir` with `{ recursive: true }` or manual recursion
+- [x] `parseTaskDirectory(dirPath: string): Promise<TaskInput[]>`:
+  - Recursive directory scanning via `node:fs/promises.readdir` with `{ withFileTypes: true }` + manual recursion
   - Filters for `.md` files only
   - Silently skips files without valid `---`-delimited frontmatter (no error thrown, just omitted from results)
   - Throws underlying Node.js error for I/O failures
   - Uses `parseTaskFile` per file
-- [ ] `serializeFrontmatter(task: TaskInput, body?: string): string`:
+- [x] `serializeFrontmatter(task: TaskInput, body?: string): string`:
   - Constructs `---`-delimited markdown output
-  - Uses `yaml.stringify()` for the `TaskInput` data (excludes `id` from frontmatter? No — per Rust CLI convention, `id` comes from the filename, but in the schema it's part of `TaskInput`. Follow schema: include all `TaskInput` fields in the YAML.)
+  - Uses `yaml.stringify()` for the `TaskInput` data (includes all `TaskInput` fields per schema)
   - Appends body content (default: empty string) after closing `---`
   - Handles nullable fields correctly: `risk: null` → `risk: null` in YAML (explicit null), absent fields → omitted from YAML
-- [ ] File I/O functions documented as Node.js-only in JSDoc comments
-- [ ] Unit tests: parseTaskFile with temp file, parseTaskDirectory with temp dir (including non-.md files, missing frontmatter files), serializeFrontmatter round-trip parseFrontmatter(serializeFrontmatter(task)) ≈ task
+- [x] File I/O functions documented as Node.js-only in JSDoc comments
+- [x] Unit tests: parseTaskFile with temp file, parseTaskDirectory with temp dir (including non-.md files, missing frontmatter files), serializeFrontmatter round-trip parseFrontmatter(serializeFrontmatter(task)) ≈ task
 
 ## References
 
@@ -47,8 +47,14 @@ Per [frontmatter.md](../../../docs/architecture/frontmatter.md):
 
 ## Notes
 
-> To be filled by implementation agent
+All acceptance criteria verified by unit tests and TypeScript type-checker. File I/O functions moved to separate `file-io.ts` module to keep `parse.ts` runtime-agnostic. Stubs removed from `parse.ts`.
 
 ## Summary
 
-> To be filled on completion
+Implemented `parseTaskFile`, `parseTaskDirectory`, and `serializeFrontmatter`.
+- Created: `src/frontmatter/file-io.ts` (parseTaskFile, parseTaskDirectory — Node.js-only file I/O)
+- Modified: `src/frontmatter/serialize.ts` (replaced stub with full serializeFrontmatter implementation)
+- Modified: `src/frontmatter/parse.ts` (removed parseTaskFile/parseTaskDirectory stubs)
+- Modified: `src/frontmatter/index.ts` (updated exports — file-io functions from file-io.js)
+- Created: `test/frontmatter-fileio-serialize.test.ts` (29 tests)
+- Tests: 29 new + 257 existing = 286 total, all passing; tsc --noEmit clean
