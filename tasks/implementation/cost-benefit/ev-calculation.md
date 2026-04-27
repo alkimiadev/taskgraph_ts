@@ -1,7 +1,7 @@
 ---
 id: cost-benefit/ev-calculation
 name: Implement calculateTaskEv pure function
-status: pending
+status: completed
 depends_on:
   - schema/numeric-methods-and-defaults
   - schema/result-types
@@ -41,8 +41,12 @@ Where `C_fail = scopeCost + fallbackCost + timeLost × expectedRetries`.
 
 ## Notes
 
-> To be filled by implementation agent
+All acceptance criteria verified via 30 unit tests covering formula correctness, edge cases, config variations, and known Python research model values.
 
 ## Summary
 
-> To be filled on completion
+Implemented `calculateTaskEv` pure function in `src/analysis/cost-benefit.ts`.
+- Modified: `src/analysis/cost-benefit.ts` — full implementation of calculateTaskEv
+- Modified: `test/cost-benefit.test.ts` — 30 comprehensive unit tests
+- Tests: 30, all passing (286 total across suite)
+- Lint: clean (tsc --noEmit passes)
