@@ -1,7 +1,7 @@
 ---
 id: cost-benefit/dag-propagation
 name: Implement DAG-propagation effective probability computation
-status: pending
+status: completed
 depends_on:
   - cost-benefit/ev-calculation
   - graph/queries
@@ -24,17 +24,17 @@ Per [cost-benefit.md](../../../docs/architecture/cost-benefit.md), the algorithm
 
 ## Acceptance Criteria
 
-- [ ] `computeEffectiveP(taskId, graph, upstreamSuccessProbs, defaultQualityRetention, propagationMode)` — internal helper
-- [ ] In `dag-propagate` mode: for each task in topological order:
+- [x] `computeEffectiveP(taskId, graph, upstreamSuccessProbs, defaultQualityRetention, propagationMode)` — internal helper
+- [x] In `dag-propagate` mode: for each task in topological order:
   - Get intrinsic probability from `resolveDefaults(risk).successProbability`
   - For each prerequisite, compute inherited quality: `parentP + (1 - parentP) × qualityRetention`
   - `pEffective` = intrinsic × product of all inherited quality factors
   - Store task's **actual** success probability for downstream propagation (use `pEffective` if this is the task's real probability)
-- [ ] In `independent` mode: `pEffective = pIntrinsic` (no propagation)
-- [ ] Completed tasks (`status: "completed"`): propagate with `p = 1.0` when `includeCompleted: false`
-- [ ] `qualityRetention` per edge defaults to 0.9, can be overridden per-edge via `defaultQualityRetention` option or edge attributes
-- [ ] Throws `CircularDependencyError` if graph is cyclic (needs topo sort)
-- [ ] Unit tests: simple chain (verify compounding effect), diamond graph, independent vs dag-propagate comparison matches Python research model results, completed task exclusion/propagation semantics
+- [x] In `independent` mode: `pEffective = pIntrinsic` (no propagation)
+- [x] Completed tasks (`status: "completed"`): propagate with `p = 1.0` when `includeCompleted: false`
+- [x] `qualityRetention` per edge defaults to 0.9, can be overridden per-edge via `defaultQualityRetention` option or edge attributes
+- [x] Throws `CircularDependencyError` if graph is cyclic (needs topo sort)
+- [x] Unit tests: simple chain (verify compounding effect), diamond graph, independent vs dag-propagate comparison matches Python research model results, completed task exclusion/propagation semantics
 
 ## References
 
@@ -44,8 +44,14 @@ Per [cost-benefit.md](../../../docs/architecture/cost-benefit.md), the algorithm
 
 ## Notes
 
-> To be filled by implementation agent
+No depth escalation in v1 per ADR-005 — multiplicative propagation captures depth effects implicitly.
+Per-edge qualityRetention on edges takes precedence over defaultQualityRetention option.
+With default EvConfig (no fallbackCost/timeLost), EV = scopeCost × impactWeight regardless of p, so totalEv is similar across modes but pEffective differs.
 
 ## Summary
 
-> To be filled on completion
+Implemented DAG-propagation effective probability computation with `computeEffectiveP` internal helper and `workflowCost` public function.
+- Modified: `src/analysis/cost-benefit.ts` — added `computeEffectiveP` and `workflowCost` functions
+- Modified: `test/cost-benefit.test.ts` — added 30+ new tests for DAG propagation
+- Tests: 63 total in cost-benefit.test.ts, all 476 across test suite passing
+- Key features: topological ordering, per-edge qualityRetention, independent/dag-propagate modes, completed task exclusion/propagation semantics, CircularDependencyError for cyclic graphs
