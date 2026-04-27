@@ -1,6 +1,7 @@
 // TaskGraph class construction — fromTasks, fromRecords, fromJSON, incremental building
 
 import { DirectedGraph } from 'graphology';
+import { subgraph as graphologySubgraph } from 'graphology-operators';
 import { Value } from '@alkdev/typebox/value';
 import type {
   TaskGraphNodeAttributes,
@@ -15,6 +16,9 @@ import {
   DuplicateEdgeError,
   TaskNotFoundError,
   InvalidInputError,
+  type ValidationError,
+  type GraphValidationError,
+  type AnyValidationError,
 } from '../error/index.js';
 import {
   removeTask as _removeTask,
@@ -31,6 +35,11 @@ import {
   taskCount as _taskCount,
   getTask as _getTask,
 } from './queries.js';
+import {
+  validateSchema as _validateSchema,
+  validateGraph as _validateGraph,
+  validate as _validate,
+} from './validation.js';
 
 /**
  * Internal graph type alias for the graphology DirectedGraph with our attribute types.
@@ -574,5 +583,92 @@ export class TaskGraph {
    */
   getTask(taskId: string): TaskGraphNodeAttributes | undefined {
     return _getTask(this._graph, taskId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Subgraph method
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Extract a subgraph containing only nodes that pass the filter predicate.
+   *
+   * Per ADR-007, returns only edges where **both endpoints** are in the
+   * filtered set (internal-only). External edges (where only one endpoint
+   * matches) are excluded. This produces a valid (potentially disconnected)
+   * subgraph suitable for all graph algorithms.
+   *
+   * Uses `graphology-operators.subgraph` under the hood, which preserves
+   * node and edge attributes.
+   *
+   * Does not mutate the original graph — returns a new `TaskGraph` instance.
+   *
+   * @param filter - Predicate function receiving taskId and attributes for each node
+   * @returns A new TaskGraph instance with matching nodes and internal-only edges
+   */
+  subgraph(filter: (taskId: string, attrs: TaskGraphNodeAttributes) => boolean): TaskGraph {
+    // Build the set of node keys that pass the filter
+    const filteredNodes = new Set<string>();
+    for (const node of this._graph.nodes()) {
+      const attrs = this._graph.getNodeAttributes(node);
+      if (filter(node, attrs)) {
+        filteredNodes.add(node);
+      }
+    }
+
+    // Use graphology-operators subgraph which only keeps edges where
+    // both endpoints are in the filtered set (internal-only per ADR-007)
+    const subGraph = graphologySubgraph(this._graph, filteredNodes);
+
+    // Create a new TaskGraph and transfer the subgraph data
+    const result = new TaskGraph();
+    result._graph.import(subGraph.export());
+    return result;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Validation methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Validate all node attributes against the TaskGraphNodeAttributes schema.
+   *
+   * Uses TypeBox `Value.Check()` and `Value.Errors()` on each node's attributes.
+   * Returns structured `ValidationError[]` with `type: "schema"`, `taskId`,
+   * `field`, `message`, and optional `value`.
+   *
+   * Validation never throws — it collects all issues and returns them.
+   * This allows consumers to implement "collect all errors" strategies.
+   */
+  validateSchema(): ValidationError[] {
+    return _validateSchema(this._graph);
+  }
+
+  /**
+   * Validate graph-level invariants: cycles and dangling references.
+   *
+   * Runs `findCycles()` and checks for dangling dependency references
+   * (edges where one endpoint doesn't exist as a node).
+   *
+   * Returns structured `GraphValidationError[]` with:
+   * - `type: "graph"`
+   * - `category: "cycle"` for cycle errors, with cycle paths in `details`
+   * - `category: "dangling-reference"` for dangling references, with `taskId`
+   *
+   * Validation never throws — it collects all issues and returns them.
+   */
+  validateGraph(): GraphValidationError[] {
+    return _validateGraph(this._graph);
+  }
+
+  /**
+   * Run both schema and graph validation, returning combined results.
+   *
+   * Convenience method that runs `validateSchema()` and `validateGraph()`
+   * and concatenates the results into a single array.
+   *
+   * Validation never throws — it collects all issues and returns them.
+   */
+  validate(): AnyValidationError[] {
+    return _validate(this._graph);
   }
 }

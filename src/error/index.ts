@@ -85,3 +85,54 @@ export class DuplicateEdgeError extends TaskgraphError {
     this.dependent = dependent;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Validation error return types (validation never throws — returns arrays)
+// ---------------------------------------------------------------------------
+
+/**
+ * Schema validation error returned by `validateSchema()`.
+ *
+ * Represents a single field-level issue found by TypeBox `Value.Errors()`.
+ * Schema validation catches missing required fields, invalid enum values,
+ * type mismatches, etc.
+ */
+export interface ValidationError {
+  /** Discriminator: always "schema" */
+  type: 'schema';
+  /** Which task has the issue (if applicable) */
+  taskId?: string;
+  /** Which field is invalid */
+  field: string;
+  /** Human-readable description of the issue */
+  message: string;
+  /** The invalid value (if safe to include) */
+  value?: unknown;
+}
+
+/**
+ * Graph-level validation error returned by `validateGraph()`.
+ *
+ * Represents a structural graph issue (cycles, dangling references)
+ * rather than a per-field schema issue.
+ */
+export interface GraphValidationError {
+  /** Discriminator: always "graph" */
+  type: 'graph';
+  /** Category of graph issue */
+  category: 'cycle' | 'dangling-reference';
+  /** Which task is involved (for dangling references) */
+  taskId?: string;
+  /** Human-readable description */
+  message: string;
+  /** Additional details (e.g., cycle paths for cycle errors) */
+  details?: unknown;
+}
+
+/**
+ * Union type for any validation error (schema or graph).
+ *
+ * Used as the return type for `TaskGraph.validate()` which combines
+ * both `ValidationError[]` and `GraphValidationError[]`.
+ */
+export type AnyValidationError = ValidationError | GraphValidationError;
