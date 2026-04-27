@@ -1,0 +1,1 @@
+// Enum definitions: TaskScope, TaskRisk, TaskImpact, TaskLevel, TaskStatus, TaskPriority

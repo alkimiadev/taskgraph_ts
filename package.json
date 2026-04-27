@@ -1,0 +1,56 @@
+{
+  "name": "@alkdev/taskgraph",
+  "version": "0.0.1",
+  "description": "Task graph library — directed acyclic graph analysis, risk scoring, and YAML frontmatter for task management",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "taskgraph",
+    "dag",
+    "critical-path",
+    "risk-analysis",
+    "graphology"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "graphology": "^0.26.0",
+    "graphology-dag": "^0.4.1",
+    "graphology-metrics": "^2.4.0",
+    "graphology-components": "^1.5.4",
+    "graphology-operators": "^1.6.1",
+    "@alkdev/typebox": "^0.34.49",
+    "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.1.0",
+    "@types/node": "^22.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
