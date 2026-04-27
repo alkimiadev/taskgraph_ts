@@ -369,14 +369,8 @@ describe('Type alias correctness — TaskInput and DependencyEdge (compile-time)
   });
 });
 
-// Re-export Nullable from task.ts to verify the re-export works
-import { Nullable as NullableFromTask } from '../src/schema/task.js';
-
-describe('Nullable re-export from task.ts', () => {
-  it('is the same function as from enums.ts', () => {
-    expect(NullableFromTask).toBe(Nullable);
-  });
-});
+// Nullable is no longer re-exported from task.ts — it's an internal helper
+// and excluded from the public API surface per src/index.ts
 
 // Intentionally import type aliases to verify they exist at compile time
 type TaskScope = import('../src/schema/enums.js').TaskScope;
