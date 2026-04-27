@@ -1,7 +1,7 @@
 ---
 id: cost-benefit/risk-analysis
 name: Implement riskPath, riskDistribution, and shouldDecomposeTask functions
-status: pending
+status: completed
 depends_on:
   - cost-benefit/ev-calculation
   - analysis/critical-path
@@ -18,23 +18,23 @@ Implement the three risk analysis functions: `riskPath`, `riskDistribution`, and
 
 ## Acceptance Criteria
 
-- [ ] `riskPath(graph: TaskGraph): RiskPathResult`:
+- [x] `riskPath(graph: TaskGraph): RiskPathResult`:
   - Calls `weightedCriticalPath` with weight function `riskWeight * impactWeight`
   - Returns `{ path: string[], totalRisk: number }`
   - `totalRisk` is the sum of weight values along the path
-- [ ] `riskDistribution(graph: TaskGraph): RiskDistributionResult`:
+- [x] `riskDistribution(graph: TaskGraph): RiskDistributionResult`:
   - Groups all tasks by their `risk` attribute
   - Returns `{ trivial: string[], low: string[], medium: string[], high: string[], critical: string[], unspecified: string[] }`
   - Tasks with `risk: undefined` (not assessed) go in `unspecified`
   - No duplicate task IDs in any bucket
-- [ ] `shouldDecomposeTask(attrs: TaskGraphNodeAttributes): DecomposeResult`:
+- [x] `shouldDecomposeTask(attrs: TaskGraphNodeAttributes): DecomposeResult`:
   - Pure function — takes node attributes (not a graph)
   - Internally calls `resolveDefaults` for `risk` and `scope` (nullable fields)
   - Flags decomposition when: risk >= "high" OR scope >= "broad"
   - Returns `{ shouldDecompose: boolean, reasons: string[] }`
   - Unassessed tasks (null/undefined risk or scope) are never flagged — default values are below threshold
   - Provides specific reasons: e.g., `"risk: high — failure probability 0.35"`, `"scope: broad — cost estimate 4.0"`
-- [ ] Unit tests for all three functions with known inputs/outputs
+- [x] Unit tests for all three functions with known inputs/outputs
 
 ## References
 
@@ -43,8 +43,12 @@ Implement the three risk analysis functions: `riskPath`, `riskDistribution`, and
 
 ## Notes
 
-> To be filled by implementation agent
+All three functions implemented following architecture docs. `riskPath` delegates to `weightedCriticalPath` with riskWeight*impactWeight weight function and sums weights for totalRisk. `riskDistribution` iterates all nodes and groups by risk attribute (undefined/null → unspecified). `shouldDecomposeTask` is a pure function using `resolveDefaults` to fill nullable fields before checking thresholds (risk >= high, scope >= broad), with specific reason strings including numeric values.
 
 ## Summary
 
-> To be filled on completion
+Implemented riskPath, riskDistribution, and shouldDecomposeTask functions.
+- Modified: `src/analysis/risk.ts` (riskPath + riskDistribution)
+- Modified: `src/analysis/decompose.ts` (shouldDecomposeTask)
+- Created: `test/risk-analysis.test.ts`
+- Tests: 29, all passing (590 total suite)
