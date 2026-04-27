@@ -22,6 +22,15 @@ import {
   updateTask as _updateTask,
   updateEdgeAttributes as _updateEdgeAttributes,
 } from './mutation.js';
+import {
+  hasCycles as _hasCycles,
+  findCycles as _findCycles,
+  topologicalOrder as _topologicalOrder,
+  dependencies as _dependencies,
+  dependents as _dependents,
+  taskCount as _taskCount,
+  getTask as _getTask,
+} from './queries.js';
 
 /**
  * Internal graph type alias for the graphology DirectedGraph with our attribute types.
@@ -493,5 +502,77 @@ export class TaskGraph {
     }
 
     this._graph.addEdgeWithKey(edgeKey, prerequisite, dependent, { qualityRetention });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Query methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Check whether the graph contains any cycles.
+   *
+   * Uses `graphology-dag.hasCycle()` as a fast boolean check.
+   */
+  hasCycles(): boolean {
+    return _hasCycles(this._graph);
+  }
+
+  /**
+   * Find all cycle paths in the graph.
+   *
+   * Uses `stronglyConnectedComponents()` as a fast pre-check, then runs a
+   * custom 3-color DFS (WHITE/GREY/BLACK) to extract cycle paths.
+   *
+   * Returns **one representative cycle per back edge**, not an exhaustive
+   * enumeration of all simple cycles. Each inner array is an ordered node
+   * sequence where the last node has an edge back to the first:
+   * `[A, B, C]` means A → B → C → A.
+   */
+  findCycles(): string[][] {
+    return _findCycles(this._graph);
+  }
+
+  /**
+   * Return task IDs in topological (prerequisite → dependent) order.
+   *
+   * Uses `graphology-dag.topologicalSort()` for the actual sort.
+   *
+   * @throws {CircularDependencyError} When the graph is cyclic, with `cycles`
+   *   populated from `findCycles()`.
+   */
+  topologicalOrder(): string[] {
+    return _topologicalOrder(this._graph);
+  }
+
+  /**
+   * Return the prerequisite task IDs for a given task.
+   *
+   * @throws {TaskNotFoundError} If `taskId` doesn't exist in the graph.
+   */
+  dependencies(taskId: string): string[] {
+    return _dependencies(this._graph, taskId);
+  }
+
+  /**
+   * Return the dependent task IDs for a given task.
+   *
+   * @throws {TaskNotFoundError} If `taskId` doesn't exist in the graph.
+   */
+  dependents(taskId: string): string[] {
+    return _dependents(this._graph, taskId);
+  }
+
+  /**
+   * Return the number of tasks (nodes) in the graph.
+   */
+  taskCount(): number {
+    return _taskCount(this._graph);
+  }
+
+  /**
+   * Return the attributes of a task node, or `undefined` if it doesn't exist.
+   */
+  getTask(taskId: string): TaskGraphNodeAttributes | undefined {
+    return _getTask(this._graph, taskId);
   }
 }
