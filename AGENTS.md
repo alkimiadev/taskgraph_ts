@@ -57,3 +57,52 @@ You have access to the `worktree` tool for git worktree management and session c
 - `worktree({action: "status"})` — Show worktree git status
 
 The plugin auto-injects `workdir` for bash commands when the session is mapped to a worktree.
+
+## Project: @alkdev/taskgraph
+
+Pure TypeScript library for DAG task graph analysis, risk scoring, cost-benefit math, and YAML frontmatter parsing. Built on graphology. Dual-licensed MIT / Apache-2.0.
+
+### Commands
+
+- `npm run build` — Build with tsup (ESM + CJS + declarations)
+- `npm run lint` — Type-check with `tsc --noEmit`
+- `npm test` — Run tests with vitest
+- `npm run test:watch` — Watch mode
+- `npm run test:coverage` — Coverage report (v8)
+
+### Architecture
+
+See `docs/architecture/` for the full SDD. Key points:
+
+- **Public API boundary**: `src/index.ts` is the sole entry point. Internal graphology details are not re-exported. Only add exports to `index.ts` — never import from internal paths.
+- **Edge convention**: prerequisite → dependent (if B depends on A, edge is A → B).
+- **Edge keys**: deterministic `${source}->${target}` per ADR-006.
+- **Schemas**: TypeBox via `@alkdev/typebox`. All runtime schemas and types are defined in `src/schema/`. No Zod.
+- **Validation**: throws on construction errors (duplicates, missing nodes). `validate*()` methods return error arrays instead of throwing.
+- **No comments in source**: Do not add comments to code unless explicitly asked.
+
+### Source Layout
+
+```
+src/
+  index.ts          — Public API surface (all exports)
+  graph/
+    construction.ts — TaskGraph class
+    queries.ts      — Internal query helpers
+    mutation.ts     — Internal mutation helpers
+    validation.ts   — Internal validation helpers
+  analysis/
+    critical-path.ts, bottleneck.ts, parallel-groups.ts
+    risk.ts, cost-benefit.ts, decompose.ts, defaults.ts
+  frontmatter/
+    parse.ts, serialize.ts, file-io.ts (Node.js only)
+  schema/
+    enums.ts, task.ts, graph.ts, results.ts
+  error/
+    index.ts        — Error classes + validation types
+```
+
+### Dependencies
+
+Runtime: `graphology`, `graphology-*`, `yaml`, `@alkdev/typebox`. No native addons.
+Dev: `tsup`, `typescript`, `vitest`, `@vitest/coverage-v8`.

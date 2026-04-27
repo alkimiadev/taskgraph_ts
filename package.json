@@ -37,7 +37,7 @@
     "risk-analysis",
     "graphology"
   ],
-  "license": "MIT",
+  "license": "MIT OR Apache-2.0",
   "dependencies": {
     "@alkdev/typebox": "^0.34.49",
     "graphology": "^0.26.0",
