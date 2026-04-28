@@ -1,6 +1,6 @@
 {
   "name": "@alkdev/taskgraph",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Task graph library — directed acyclic graph analysis, risk scoring, and YAML frontmatter for task management",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -17,6 +17,9 @@
         "default": "./dist/index.cjs"
       }
     }
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "files": [
     "dist"
