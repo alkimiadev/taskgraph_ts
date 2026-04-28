@@ -115,6 +115,17 @@ export function parseFrontmatter(markdown: string): TaskInputType {
     throw new InvalidInputError('', 'YAML frontmatter must be a mapping (object), not a scalar or array');
   }
 
+  // Step 3.5: Normalize known snake_case aliases to camelCase.
+  // The YAML format uses snake_case (e.g., `depends_on`) but our schema
+  // expects camelCase (e.g., `dependsOn`). Without this, `Value.Clean()`
+  // would strip the unknown snake_case key and the field would be silently
+  // lost — causing empty dependency lists and broken graphs.
+  const record = parsed as Record<string, unknown>;
+  if ('depends_on' in record && !('dependsOn' in record)) {
+    record.dependsOn = record.depends_on;
+    delete record.depends_on;
+  }
+
   // Step 4: Clean — strip unknown properties from untrusted input
   const cleaned = Value.Clean(TaskInput, parsed);
 

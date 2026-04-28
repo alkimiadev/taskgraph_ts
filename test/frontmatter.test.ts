@@ -484,4 +484,44 @@ risk: invalid-value
     const result = parseFrontmatter(input);
     expect(result.id).toBe('bom-task');
   });
+
+  // ─── Snake_case compatibility ──────────────────────────────────────────
+
+  it('normalizes depends_on to dependsOn', () => {
+    const input = `---
+id: snake-task
+name: Snake Task
+depends_on:
+  - task-a
+  - task-b
+---
+Body`;
+    const result = parseFrontmatter(input);
+    expect(result.dependsOn).toEqual(['task-a', 'task-b']);
+  });
+
+  it('prefers dependsOn when both depends_on and dependsOn are present', () => {
+    const input = `---
+id: both-task
+name: Both Task
+dependsOn:
+  - from-camel
+depends_on:
+  - from-snake
+---
+Body`;
+    const result = parseFrontmatter(input);
+    expect(result.dependsOn).toEqual(['from-camel']);
+  });
+
+  it('normalizes depends_on with empty array', () => {
+    const input = `---
+id: empty-snake
+name: Empty Snake
+depends_on: []
+---
+Body`;
+    const result = parseFrontmatter(input);
+    expect(result.dependsOn).toEqual([]);
+  });
 });
